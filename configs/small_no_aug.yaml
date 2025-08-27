@@ -1,0 +1,14 @@
+data_dir: Data/
+data_ratio: 0.4
+test_ratio: 0.3
+data_augmentation: false
+regularization: false
+dropout_rate: 0
+epochs: 5
+batch_size: 16
+lr: 0.01
+momentum: 0.09
+plot_path_train: all_plots/subset_baseline_plot/train_plots.png
+plot_path_test: all_plots/subset_baseline_plot/test_plots.png
+plot_confusion: all_plots/subset_baseline_plot/confusion_matrix.png
+report_path: all_plots/subset_baseline_plot/report.txt

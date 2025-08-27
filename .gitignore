@@ -1,0 +1,5 @@
+# ignore dataset
+Data/
+venv/
+myenv/
+
