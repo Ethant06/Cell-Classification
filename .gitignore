@@ -1,0 +1,7 @@
+# ignore dataset
+Data/
+.venv/
+data2/
+src/__pycache__/
+*.pyc
+saved_splits/
