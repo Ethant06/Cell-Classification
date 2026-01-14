@@ -145,7 +145,7 @@ def run_experiment(config, seed):
 
     train_loader, test_loader = load_datasets(config, seed)
     model = CNN(config)
-    print(f"Experiment: {config['experiment_type']} | Seed: {seed}") #Tracks ran experiment, for testing purposes
+    print(f"Experiment: {config['experiment_type']} | Seed: {seed}") # Tracks ran experiment, for testing purposes
     train(model, train_loader, config, save_plots)
     accuracy = str(evaluate(model, test_loader, config, save_plots)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
 
@@ -179,7 +179,7 @@ if __name__ == '__main__':
     ]
 
 
-    for cfg in config_files:  # run through all 6 different experiments
+    for cfg in config_files: # run through all 6 different experiments
         config_path = os.path.join(config_folder, cfg)
         base_config = load_config(config_path)
 

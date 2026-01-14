@@ -11,12 +11,14 @@ import torch
 def load_create_split(data_dir, test_ratio, seed = 42):
     """
     Creates or loads a fixed train/test split that is shared across
-    all experiments and all random seeds.
+    all experiments and all random seeds. Each dataset gets its very own
+    fixed train/test indices.
 
     - If saved split files exist, they are loaded from saved_splits/.
     - Otherwise, a new stratified split is created and saved as fixed.
     """
-    split_dir = "saved_splits"
+    dataset_name = os.path.basename(os.path.abspath(data_dir))
+    split_dir = os.path.join("saved_splits", dataset_name)
     train_idx_path = os.path.join(split_dir, "train_indices.npy")
     test_idx_path = os.path.join(split_dir, "test_indices.npy")
 

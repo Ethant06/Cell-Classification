@@ -1,5 +1,5 @@
 # configuration for CNN experiment using full dataset and without any data augmentation/regularization
-data_dir: data2/
+data_dir: data3/
 data_ratio: 0.7
 test_ratio: 0.3
 experiment_type: baseline
