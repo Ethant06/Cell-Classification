@@ -146,17 +146,24 @@ def run_experiment(config, seed):
     train_loader, test_loader = load_datasets(config, seed)
     model = CNN(config)
     print(f"Experiment: {config['experiment_type']} | Seed: {seed}") # Tracks ran experiment, for testing purposes
-    train(model, train_loader, config, save_plots)
+    train_accuracy = train(model, train_loader, config, save_plots)
     accuracy = str(evaluate(model, test_loader, config, save_plots)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
 
 
-    #make folder containg accuracies for each seed per experiment
+    # make folder containg test accuracies for each seed per experiment
     exp_directory = os.path.dirname(config['accuracy_path'])
     seed_dir = os.path.join(exp_directory, 'accuracies')
     os.makedirs(seed_dir, exist_ok = True)
     accuracy_path = os.path.join(seed_dir, f"seed_{seed}.txt")
     with open(accuracy_path, 'w') as f:
         f.write(str(accuracy))
+
+    # make folder containg train accuracies for each seed per experiment
+    train_seed_dir = os.path.join(exp_directory, 'train_accuracies')
+    os.makedirs(train_seed_dir, exist_ok = True)
+    train_accuracy_path = os.path.join(train_seed_dir, f"seed_{seed}.txt")
+    with open(train_accuracy_path, 'w') as f:
+        f.write(str(train_accuracy))
 
 #Main Execution Block
 if __name__ == '__main__':

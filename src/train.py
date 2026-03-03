@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def train(model, dataloader, config, save_plots) -> None:
+def train(model, dataloader, config, save_plots) -> float:
     """
     - Iterates over the training dataset for a fixed number of epochs
     - Performs forward and backward passes
@@ -61,3 +61,19 @@ def train(model, dataloader, config, save_plots) -> None:
         os.makedirs(plot_dir, exist_ok=True)
         plt.savefig(config['plot_path_train'])
         plt.close(fig)
+
+
+    model.eval()
+    final_train_correct = 0
+    final_train_total = 0
+
+    with torch.no_grad():
+        for data in dataloader:
+            inputs, labels = data
+            predictions = model(inputs)
+            _, predicted = torch.max(predictions, 1)
+            final_train_total += labels.size(0)
+            final_train_correct += (predicted == labels).sum().item()
+
+    final_train_accuracy = final_train_correct / final_train_total
+    return final_train_accuracy

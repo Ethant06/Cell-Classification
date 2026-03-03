@@ -1,0 +1,75 @@
+import os
+import matplotlib.pyplot as plt
+from PIL import Image
+
+# ============ CELL IMAGES ============
+cell_dir = "data0/"
+n_images = 4
+
+cell_folders = sorted(os.listdir(cell_dir))
+
+cell_class0 = [os.path.join(cell_dir, cell_folders[0], f)
+               for f in os.listdir(os.path.join(cell_dir, cell_folders[0]))[:n_images]]
+cell_class1 = [os.path.join(cell_dir, cell_folders[1], f)
+               for f in os.listdir(os.path.join(cell_dir, cell_folders[1]))[:n_images]]
+
+# Plot cells
+fig, axes = plt.subplots(2, n_images, figsize=(12, 4))
+fig.suptitle('Cell Images (Radially Symmetric)', fontsize=14, fontweight='bold')
+
+for i in range(n_images):
+    # Top row: class 0
+    img = Image.open(cell_class0[i]).convert('L')
+    axes[0, i].imshow(img, cmap='gray')
+    axes[0, i].axis('off')
+    if i == 0:
+        axes[0, i].set_title(cell_folders[0], fontweight='bold')
+
+    # Bottom row: class 1
+    img = Image.open(cell_class1[i]).convert('L')
+    axes[1, i].imshow(img, cmap='gray')
+    axes[1, i].axis('off')
+    if i == 0:
+        axes[1, i].set_title(cell_folders[1], fontweight='bold')
+
+plt.tight_layout()
+plt.subplots_adjust(wspace=0, hspace=0.05)
+plt.tight_layout()
+plt.savefig('cells_comparison.png', dpi=300, bbox_inches='tight')
+print("Saved cells_comparison.png")
+
+
+# ============ PNEUMONIA IMAGES ============
+pneumonia_dir = "data4/"
+
+pneumonia_folders = sorted(os.listdir(pneumonia_dir))
+
+pneumonia_class0 = [os.path.join(pneumonia_dir, pneumonia_folders[0], f)
+                    for f in os.listdir(os.path.join(pneumonia_dir, pneumonia_folders[0]))[:n_images]]
+pneumonia_class1 = [os.path.join(pneumonia_dir, pneumonia_folders[1], f)
+                    for f in os.listdir(os.path.join(pneumonia_dir, pneumonia_folders[1]))[:n_images]]
+
+# Plot pneumonia
+fig, axes = plt.subplots(2, n_images, figsize=(10, 4))
+fig.suptitle('Chest X-Ray Images (Structured)', fontsize=14, fontweight='bold')
+
+for i in range(n_images):
+    # Top row: class 0
+    img = Image.open(pneumonia_class0[i]).convert('L')
+    axes[0, i].imshow(img, cmap='gray')
+    axes[0, i].axis('off')
+    if i == 0:
+        axes[0, i].set_title(pneumonia_folders[0], fontweight='bold')
+
+    # Bottom row: class 1
+    img = Image.open(pneumonia_class1[i]).convert('L')
+    axes[1, i].imshow(img, cmap='gray')
+    axes[1, i].axis('off')
+    if i == 0:
+        axes[1, i].set_title(pneumonia_folders[1], fontweight='bold')
+
+plt.tight_layout()
+plt.subplots_adjust(wspace=0, hspace=0.01)
+plt.tight_layout()
+plt.savefig('pneumonia_comparison.png', dpi=300, bbox_inches='tight')
+print("Saved pneumonia_comparison.png")
