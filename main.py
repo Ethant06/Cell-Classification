@@ -9,20 +9,27 @@ import copy
 #---------------------Visualization Block------------------------------
 def gatherAccuracies():
     """
-    This function Collect final test accuracy for each experiment only first seed.
-    Scans through all_plots/, where each experiment has its own subfolder,
-    and reads accuracy.txt from each experiment folder.
-
-    Returns:
-        dict:
-        {experiment_name (str) : accuracy (float)}
+    Collect final test accuracy for each experiment (first seed only for bar chart).
+    Reads accuracy.txt if present; otherwise uses mean of accuracies/seed_*.txt.
     """
     accuracies = {}
     for exp in os.listdir('all_plots'):
-        accuracy_path = os.path.join('all_plots', exp, 'accuracy.txt')
-        with open(accuracy_path, 'r') as f:
-            acc = float(f.read().strip())
-            accuracies[exp] = acc
+        exp_dir = os.path.join('all_plots', exp)
+        accuracy_path = os.path.join(exp_dir, 'accuracy.txt')
+        seed_dir = os.path.join(exp_dir, 'accuracies')
+        if os.path.isfile(accuracy_path):
+            with open(accuracy_path, 'r') as f:
+                acc = float(f.read().strip())
+        elif os.path.isdir(seed_dir):
+            vals = []
+            for fname in os.listdir(seed_dir):
+                if fname.endswith('.txt'):
+                    with open(os.path.join(seed_dir, fname), 'r') as f:
+                        vals.append(float(f.read().strip()))
+            acc = float(np.mean(vals)) if vals else 0.0
+        else:
+            continue
+        accuracies[exp] = acc
     return accuracies
 
 
@@ -150,13 +157,17 @@ def run_experiment(config, seed):
     accuracy = str(evaluate(model, test_loader, config, save_plots)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
 
 
-    # make folder containg test accuracies for each seed per experiment
+    # make folder containing test accuracies for each seed per experiment
     exp_directory = os.path.dirname(config['accuracy_path'])
     seed_dir = os.path.join(exp_directory, 'accuracies')
-    os.makedirs(seed_dir, exist_ok = True)
-    accuracy_path = os.path.join(seed_dir, f"seed_{seed}.txt")
-    with open(accuracy_path, 'w') as f:
+    os.makedirs(seed_dir, exist_ok=True)
+    seed_path = os.path.join(seed_dir, f"seed_{seed}.txt")
+    with open(seed_path, 'w') as f:
         f.write(str(accuracy))
+    # keep accuracy.txt in sync with first seed so gatherAccuracies() works
+    if seed == seeds[0]:
+        with open(config['accuracy_path'], 'w') as f:
+            f.write(str(accuracy))
 
     # make folder containg train accuracies for each seed per experiment
     train_seed_dir = os.path.join(exp_directory, 'train_accuracies')

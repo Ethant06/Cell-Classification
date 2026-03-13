@@ -116,56 +116,52 @@ def get_transform(config):
 
 def load_datasets(config, seed):
     """
-    -returns a test dataloader and a train dataloader
-    -test dataloader is fixed for all experiments,
-    -train dataloader will vary in data ratio depending on experiment type,
-        and also data transformation
+    Returns (train_loader, test_loader).
+    - Test dataloader is fixed for all experiments.
+    - Train dataloader varies by data ratio and transforms.
 
-    Reduced subset sampling:
-        - Varies across seeds
-        - Is stratified to preserve class balance
-        - Uses the SAME reduced subset across all "limited data" experiments
-          for a given seed
+    When config has data_dir_train and data_dir_test (e.g. pneumonia with official split),
+    uses those dirs directly to avoid patient/sample leakage from merging then re-splitting.
+    Otherwise uses data_dir and load_create_split for a fixed 70/30 stratified split.
+
+    Reduced subset sampling (limited-data experiments):
+        - Stratified subsample of the training set; same subset across all limited-data
+          experiments for a given seed.
     """
-
     train_transform, test_transform = get_transform(config)
 
-    #train_indices will be used for subset sampling below
-    train_indices, test_indices = load_create_split(
-        data_dir = config['data_dir'],
-        test_ratio = config['test_ratio']
-    )
+    use_predefined_split = "data_dir_train" in config and "data_dir_test" in config
 
-    full_train_dataset = ImageFolder(root=config['data_dir'], transform=train_transform)
-    full_test_dataset = ImageFolder(root=config['data_dir'], transform=test_transform)
+    if use_predefined_split:
+        # e.g. pneumonia: use official train/test folders (no random re-split → no leakage)
+        full_train_dataset = ImageFolder(root=config["data_dir_train"], transform=train_transform)
+        full_test_dataset = ImageFolder(root=config["data_dir_test"], transform=test_transform)
+        train_indices = np.arange(len(full_train_dataset))
+        train_dataset = full_train_dataset
+        test_dataset = full_test_dataset
+    else:
+        train_indices, test_indices = load_create_split(
+            data_dir=config["data_dir"],
+            test_ratio=config["test_ratio"],
+        )
+        full_train_dataset = ImageFolder(root=config["data_dir"], transform=train_transform)
+        full_test_dataset = ImageFolder(root=config["data_dir"], transform=test_transform)
+        train_dataset = Subset(full_train_dataset, train_indices)
+        test_dataset = Subset(full_test_dataset, test_indices)
 
-    train_dataset = Subset(full_train_dataset, train_indices)
-    test_dataset = Subset(full_test_dataset, test_indices)
+    # Reduced subset sampling for limited-data experiments (same for all non-baseline)
+    if config["experiment_type"] != "baseline" and config.get("data_ratio", 1.0) < 1.0:
+        train_labels = np.array([full_train_dataset.targets[i] for i in train_indices])
+        subset_size = int(len(train_dataset) * config["data_ratio"])
+        reduced_indices, _ = train_test_split(
+            np.arange(len(train_dataset)),
+            train_size=subset_size,
+            stratify=train_labels,
+            random_state=seed,
+            shuffle=True,
+        )
+        train_dataset = Subset(train_dataset, reduced_indices)
 
-
-    """
-    -reduced subset sampling for training data for experiments with limited data
-    -subset changes per seed but stays the same for every limited data experiment
-        -full_train_dataset.targets is a list of class labels for all images in the full dataset.
-        -train_indices is the list of indices in training split
-        -list comprehension gathers the labels corresponding to training samples.
-    """
-    if config['experiment_type'] != 'baseline':
-        if config['data_ratio'] < 1.0:
-            train_labels = np.array([full_train_dataset.targets[i] for i in train_indices])
-
-            subset_size = int(len(train_dataset) * config['data_ratio'])
-
-            # stratified subsampling from training split
-            reduced_indices, _ = train_test_split(
-                np.arange(len(train_dataset)),
-                train_size=subset_size,
-                stratify=train_labels,
-                random_state=seed,
-                shuffle=True
-            )
-            train_dataset = Subset(train_dataset, reduced_indices)
-
-    train_loader = DataLoader(train_dataset, batch_size = config['batch_size'], shuffle= True) # this train_loader will only vary by seed
-    test_loader = DataLoader(test_dataset, batch_size = 16, shuffle = False) #this test loader is fixed for all experiment
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
     return train_loader, test_loader
