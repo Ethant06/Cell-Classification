@@ -114,6 +114,21 @@ def get_transform(config):
     return train_transform, test_transform
 
 
+class TransformedSubset(torch.utils.data.Dataset):
+    def __init__(self, subset, transform=None):
+        self.subset = subset
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.subset)
+
+
 def load_datasets(config, seed):
     """
     -returns a test dataloader and a train dataloader
@@ -135,12 +150,17 @@ def load_datasets(config, seed):
         data_dir = config['data_dir'],
         test_ratio = config['test_ratio']
     )
+   
+    # No transforms applied to the full dataset
+    full_dataset = ImageFolder(root=config['data_dir'])
 
-    full_train_dataset = ImageFolder(root=config['data_dir'], transform=train_transform)
-    full_test_dataset = ImageFolder(root=config['data_dir'], transform=test_transform)
+    # Create subsets first
+    train_subset = Subset(full_dataset, train_indices)
+    test_subset = Subset(full_dataset, test_indices)
 
-    train_dataset = Subset(full_train_dataset, train_indices)
-    test_dataset = Subset(full_test_dataset, test_indices)
+    # Apply transforms to the subsets
+    train_dataset = TransformedSubset(train_subset, transform=train_transform)
+    test_dataset = TransformedSubset(test_subset, transform=test_transform)
 
 
     """
@@ -152,7 +172,8 @@ def load_datasets(config, seed):
     """
     if config['experiment_type'] != 'baseline':
         if config['data_ratio'] < 1.0:
-            train_labels = np.array([full_train_dataset.targets[i] for i in train_indices])
+            # Get labels from the original train_subset
+            train_labels = np.array([train_subset.dataset.targets[i] for i in train_subset.indices])
 
             subset_size = int(len(train_dataset) * config['data_ratio'])
 
@@ -167,5 +188,5 @@ def load_datasets(config, seed):
             train_dataset = Subset(train_dataset, reduced_indices)
 
     train_loader = DataLoader(train_dataset, batch_size = config['batch_size'], shuffle= True) # this train_loader will only vary by seed
-    test_loader = DataLoader(test_dataset, batch_size = 16, shuffle = False) #this test loader is fixed for all experiment
+    test_loader = DataLoader(test_dataset, batch_size = 64, shuffle = False) #this test loader is fixed for all experiment
     return train_loader, test_loader
