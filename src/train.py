@@ -16,35 +16,38 @@ def train(model, dataloader, config, save_plots) -> float:
     - Optionally saves training loss and accuracy plots depending on parameter save_plots
     """
     optimizer = optim.SGD(model.parameters(), lr = config['lr'], momentum = config['momentum'])
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     train_loss = []
     train_acc = []
     print("Train samples:", len(dataloader.dataset))
-    for epoch in range(config['epochs']):
-        model.train()
+    model.train()
+    for _ in range(config['epochs']):
         epoch_loss = 0.0
         epoch_correct = 0
         epoch_total = 0
 
-        for i, data in enumerate(dataloader, 0):
-            print(f"Batch {i}") # this is for debuging purposes
+        for i, data in enumerate(dataloader):
             inputs, labels = data
             optimizer.zero_grad()
-            prediction = model(inputs)
-            loss = criterion(prediction, labels)
+            logits = model(inputs).squeeze(1)
+            labels = labels.float()
+            loss = criterion(logits, labels)
             loss.backward()
             optimizer.step()
 
-            _, predicted = torch.max(prediction.detach(), 1)
+            probs = torch.sigmoid(logits)
+            predicted = (probs >= 0.5).long()
+
             epoch_total += labels.size(0)
             epoch_loss += loss.item()
-            epoch_correct += (predicted == labels).sum().item()
+            epoch_correct += (predicted == labels.long()).sum().item()
+
 
         epoch_loss_sum = epoch_loss / len(dataloader)
         epoch_accuracy = (epoch_correct / epoch_total)
         train_loss.append(epoch_loss_sum)
         train_acc.append(epoch_accuracy)
-
+    
     # save plots if the experiment is running in the first seed. Recorded in all_plots/experiment_type/
     if save_plots == True:
         fig, [ax1, ax2] = plt.subplots(2, figsize=(12, 8))
