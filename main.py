@@ -3,8 +3,27 @@ from src.evaluate import evaluate
 from src.model import CNN
 from src.train import train
 import matplotlib.pyplot as plt
-import torch, numpy as np, random, os, yaml
+import torch, numpy as np, random, os, yaml, argparse
 import copy
+
+DEFAULT_CONFIG_FILES = [
+    "baseline.yaml",
+    "small_aug_reg.yaml",
+    "small_no_aug.yaml",
+    "small_with_aug.yaml",
+    "small_rotation.yaml",
+    "small_flip.yaml",
+]
+
+# Pneumonia flat data4/ (class folders); each YAML writes under all_plots/pneumonia_* per accuracy_path.
+PNEUMONIA_CONFIG_FILES = [
+    "pneumonia_flat_baseline.yaml",
+    "pneumonia_subset_baseline.yaml",
+    "pneumonia_flat_subset_aug.yaml",
+    "pneumonia_flat_subset_aug_reg.yaml",
+    "pneumonia_flat_subset_flip.yaml",
+    "pneumonia_flat_subset_rotation.yaml",
+]
 
 #---------------------Visualization Block------------------------------
 def gatherAccuracies():
@@ -186,18 +205,20 @@ if __name__ == '__main__':
         - Generates summary plots
     """
 
+    parser = argparse.ArgumentParser(
+        description="Train/eval CNN experiments. Use --pneumonia to run configs whose outputs go under all_plots/pneumonia_*."
+    )
+    parser.add_argument(
+        "--pneumonia",
+        action="store_true",
+        help="Run pneumonia YAMLs (data4 flat layout); accuracies saved under each config's all_plots/pneumonia_* paths.",
+    )
+    args = parser.parse_args()
+
     config_folder = "configs"
-    config_files = [
-        "baseline.yaml",
-        "small_aug_reg.yaml",
-        "small_no_aug.yaml",
-        "small_with_aug.yaml",
-        "small_rotation.yaml",
-        "small_flip.yaml"
-    ]
+    config_files = PNEUMONIA_CONFIG_FILES if args.pneumonia else DEFAULT_CONFIG_FILES
 
-
-    for cfg in config_files: # run through all 6 different experiments
+    for cfg in config_files:
         config_path = os.path.join(config_folder, cfg)
         base_config = load_config(config_path)
 
