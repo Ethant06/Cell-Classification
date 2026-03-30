@@ -8,6 +8,18 @@ from sklearn.model_selection import train_test_split
 import torch
 
 
+def _split_matches_dataset(train_indices, test_indices, n_samples):
+    """True if saved indices are a full partition of [0, n_samples) (same size as current ImageFolder)."""
+    if n_samples <= 0:
+        return False
+    combined = np.concatenate([np.asarray(train_indices), np.asarray(test_indices)])
+    if combined.size != n_samples:
+        return False
+    if combined.min() < 0 or combined.max() >= n_samples:
+        return False
+    return np.unique(combined).size == n_samples
+
+
 def load_create_split(data_dir, test_ratio, seed = 42):
     """
     Creates or loads a fixed train/test split that is shared across
@@ -16,20 +28,25 @@ def load_create_split(data_dir, test_ratio, seed = 42):
 
     - If saved split files exist, they are loaded from saved_splits/.
     - Otherwise, a new stratified split is created and saved as fixed.
+    - If the image folder changed size (add/remove images), saved indices are invalid;
+      a new split is created and overwrites the old files.
     """
     dataset_name = os.path.basename(os.path.abspath(data_dir))
     split_dir = os.path.join("saved_splits", dataset_name)
     train_idx_path = os.path.join(split_dir, "train_indices.npy")
     test_idx_path = os.path.join(split_dir, "test_indices.npy")
 
+    full_dataset = ImageFolder(root=data_dir)
+    n = len(full_dataset)
+
     if os.path.exists(train_idx_path) and os.path.exists(test_idx_path):
         train_indices = np.load(train_idx_path)
         test_indices = np.load(test_idx_path)
-        return train_indices, test_indices
+        if _split_matches_dataset(train_indices, test_indices, n):
+            return train_indices, test_indices
 
     os.makedirs(split_dir, exist_ok=True)
-    full_dataset = ImageFolder(root=data_dir)
-    full_indices = np.arange(len(full_dataset))
+    full_indices = np.arange(n)
 
     train_indices, test_indices = train_test_split(
         full_indices,

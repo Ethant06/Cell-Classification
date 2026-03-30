@@ -155,12 +155,14 @@ def load_config(path):
     with open(path, 'r') as f:
         return yaml.safe_load(f)
 
-def run_experiment(config, seed):
+def run_experiment(config, seed, config_filename=None):
     """
-    Runs a single experiment for a given experiment onfiguration and seed.
+    Runs a single experiment for a given experiment configuration and seed.
     Notes:
     - Training and evaluation plots are saved only for the first seed.
     - Accuracy is saved per seed in: all_plots/<experiment>/accuracies/seed_<seed>.txt
+    - config_filename (e.g. pneumonia_flat_subset_aug.yaml) distinguishes runs that share the same experiment_type.
+    Optional YAML key run_label: short display name; overrides filename in the log line.
     """
     setSeed(seed)
 
@@ -171,7 +173,11 @@ def run_experiment(config, seed):
 
     train_loader, test_loader = load_datasets(config, seed)
     model = CNN(config)
-    print(f"Experiment: {config['experiment_type']} | Seed: {seed}") # Tracks ran experiment, for testing purposes
+    run_id = config.get("run_label") or config_filename or "?"
+    print(
+        f"Run: {run_id} | experiment_type={config['experiment_type']} | Seed={seed}",
+        flush=True,
+    )
     train_accuracy = train(model, train_loader, config, save_plots)
     accuracy = str(evaluate(model, test_loader, config, save_plots)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
 
@@ -206,12 +212,17 @@ if __name__ == '__main__':
     """
 
     parser = argparse.ArgumentParser(
-        description="Train/eval CNN experiments. Use --pneumonia to run configs whose outputs go under all_plots/pneumonia_*."
+        description=(
+            "Train/eval CNN experiments. Default run uses DEFAULT_CONFIG_FILES; "
+            "each YAML sets its own data_dir (e.g. euploid/aneuploid ImageFolder root). "
+            "Use --pneumonia for pneumonia YAMLs only."
+        )
     )
     parser.add_argument(
+        "-p",
         "--pneumonia",
         action="store_true",
-        help="Run pneumonia YAMLs (data4 flat layout); accuracies saved under each config's all_plots/pneumonia_* paths.",
+        help="Run only pneumonia YAMLs (data4/); outputs under all_plots/pneumonia_*.",
     )
     args = parser.parse_args()
 
@@ -223,7 +234,7 @@ if __name__ == '__main__':
         base_config = load_config(config_path)
 
         for seed in seeds:
-            run_experiment(base_config, seed)
+            run_experiment(base_config, seed, cfg)
 
     # these gather and generate the accuracies and records it in visualizations/
     accuracies = gatherAccuracies()

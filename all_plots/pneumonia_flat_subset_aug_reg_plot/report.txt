@@ -1,0 +1,12 @@
+Imbalance-aware summary (use alongside accuracy):
+  balanced_accuracy: 0.916163
+  macro_f1: 0.898293
+
+              precision    recall  f1-score   support
+
+           0      0.803     0.916     0.855       475
+           1      0.967     0.917     0.941      1282
+
+    accuracy                          0.916      1757
+   macro avg      0.885     0.916     0.898      1757
+weighted avg      0.923     0.916     0.918      1757

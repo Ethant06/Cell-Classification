@@ -21,7 +21,8 @@ def train(model, dataloader, config, save_plots) -> float:
     train_acc = []
     print("Train samples:", len(dataloader.dataset))
     model.train()
-    for _ in range(config['epochs']):
+    n_epochs = config["epochs"]
+    for epoch in range(n_epochs):
         epoch_loss = 0.0
         epoch_correct = 0
         epoch_total = 0
@@ -47,6 +48,10 @@ def train(model, dataloader, config, save_plots) -> float:
         epoch_accuracy = (epoch_correct / epoch_total)
         train_loss.append(epoch_loss_sum)
         train_acc.append(epoch_accuracy)
+        print(
+            f"  Epoch {epoch + 1}/{n_epochs}  loss={epoch_loss_sum:.4f}  train_acc={epoch_accuracy:.4f}",
+            flush=True,
+        )
     
     # save plots if the experiment is running in the first seed. Recorded in all_plots/experiment_type/
     if save_plots == True:
