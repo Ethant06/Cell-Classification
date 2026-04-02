@@ -52,7 +52,7 @@ def train(model, dataloader, config, save_plots) -> float:
             f"  Epoch {epoch + 1}/{n_epochs}  loss={epoch_loss_sum:.4f}  train_acc={epoch_accuracy:.4f}",
             flush=True,
         )
-    
+
     # save plots if the experiment is running in the first seed. Recorded in all_plots/experiment_type/
     if save_plots == True:
         fig, [ax1, ax2] = plt.subplots(2, figsize=(12, 8))
@@ -78,8 +78,9 @@ def train(model, dataloader, config, save_plots) -> float:
     with torch.no_grad():
         for data in dataloader:
             inputs, labels = data
-            predictions = model(inputs)
-            _, predicted = torch.max(predictions, 1)
+            logits = model(inputs).squeeze(1)
+            probs = torch.sigmoid(logits)
+            predicted = (probs >= 0.5).long()
             final_train_total += labels.size(0)
             final_train_correct += (predicted == labels).sum().item()
 

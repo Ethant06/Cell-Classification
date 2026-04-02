@@ -135,7 +135,7 @@ def plot_seed_results(results):
 
 
 # ------------------Main Functions for running experiment-----------------------
-seeds = [12, 5, 20, 44]
+seeds = [12, 5, 20, 44, 2, 7, 6, 33]
 
 def setSeed(seed):
     """

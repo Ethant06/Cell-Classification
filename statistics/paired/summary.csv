@@ -1,0 +1,8 @@
+dataset_family,comparison_id,label,baseline_folder,aug_folder,n_seeds,seeds_used,mean_difference,std_difference,ci95_low,ci95_high,ci_method
+cells,cells_subset_aug_vs_baseline,cells: aug vs baseline,subset_baseline_plot,subset_aug_plot,4,"5,12,20,44",-0.009708737864077638,0.13408633111818824,-0.22307001239217786,0.20365253666402258,paired_t_mean_diff
+cells,cells_subset_flip_vs_baseline,cells: flip vs baseline,subset_baseline_plot,subset_flip_plot,4,"5,12,20,44",-0.10436893203883493,0.2662439308018647,-0.5280224389812116,0.3192845749035417,paired_t_mean_diff
+cells,cells_subset_rotation_vs_baseline,cells: rotation vs baseline,subset_baseline_plot,subset_rotation_plot,4,"5,12,20,44",-0.10436893203883496,0.26456022022052167,-0.52534327972183,0.3166054156441601,paired_t_mean_diff
+cells,cells_subset_aug_reg_vs_baseline,cells: aug+reg vs baseline,subset_baseline_plot,subset_aug_reg_plot,4,"5,12,20,44",0.09627831715210358,0.13779404250952063,-0.1229827535851997,0.31553938788940683,paired_t_mean_diff
+pneumonia,pneumonia_subset_aug_vs_baseline,pneumonia: aug vs baseline,pneumonia_subset_baseline,pneumonia_flat_subset_aug_plot,4,"5,12,20,44",-0.017928286852589653,0.010333935747597259,-0.03437188467208259,-0.0014846890330967207,paired_t_mean_diff
+pneumonia,pneumonia_subset_flip_vs_baseline,pneumonia: flip vs baseline,pneumonia_subset_baseline,pneumonia_flat_subset_flip_plot,4,"5,12,20,44",-0.027746158224245865,0.03383902400723945,-0.0815915966873782,0.02609928023888646,paired_t_mean_diff
+pneumonia,pneumonia_subset_rotation_vs_baseline,pneumonia: rotation vs baseline,pneumonia_subset_baseline,pneumonia_flat_subset_rotation_plot,4,"5,12,20,44",-0.022481502561183864,0.01808494731070502,-0.05125868943629074,0.006295684313923015,paired_t_mean_diff

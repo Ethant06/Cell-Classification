@@ -1,0 +1,13 @@
+Paired comparisons: difference = aug test_accuracy - baseline test_accuracy
+95% CI = paired t interval on the MEAN of those differences (df = n_seeds - 1).
+CI includes 0  ~  no strong evidence of systematic gain or loss.
+
+family	label	n	mean_diff	ci95_low	ci95_high	seeds
+--------------------------------------------------------------------------------------------------------------
+cells	cells: aug vs baseline	4	-0.0097	-0.2231	0.2037	5,12,20,44
+cells	cells: flip vs baseline	4	-0.1044	-0.5280	0.3193	5,12,20,44
+cells	cells: rotation vs baseline	4	-0.1044	-0.5253	0.3166	5,12,20,44
+cells	cells: aug+reg vs baseline	4	0.0963	-0.1230	0.3155	5,12,20,44
+pneumonia	pneumonia: aug vs baseline	4	-0.0179	-0.0344	-0.0015	5,12,20,44
+pneumonia	pneumonia: flip vs baseline	4	-0.0277	-0.0816	0.0261	5,12,20,44
+pneumonia	pneumonia: rotation vs baseline	4	-0.0225	-0.0513	0.0063	5,12,20,44
