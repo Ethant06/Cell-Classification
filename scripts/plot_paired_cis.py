@@ -5,8 +5,7 @@ Reads statistics/paired/summary.csv from compute_paired_statistics.py.
 One row per experiment type; on each row, up to two CIs (cells + pneumonia).
 
 Writes: statistics/paired/paired_difference_cis.png
-         statistics/paired/paired_difference_cis.svg
-         (both with transparent figure/axes background)
+       (with a transparent figure/axes background)
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ plt.rcParams.update(
 ROOT = Path(__file__).resolve().parent.parent
 SUMMARY = ROOT / "statistics" / "paired" / "summary.csv"
 OUT_PNG = ROOT / "statistics" / "paired" / "paired_difference_cis.png"
-OUT_SVG = ROOT / "statistics" / "paired" / "paired_difference_cis.svg"
 
 MEAN_MARKERSIZE = 13.5
 CI_LINEWIDTH = 2.8
@@ -136,15 +134,8 @@ def main() -> None:
 
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(OUT_PNG, dpi=150, transparent=True, facecolor="none", edgecolor="none")
-    plt.savefig(
-        OUT_SVG,
-        format="svg",
-        transparent=True,
-        facecolor="none",
-    )
     plt.close(fig)
     print(f"Saved {OUT_PNG}")
-    print(f"Saved {OUT_SVG}")
 
 
 if __name__ == "__main__":

@@ -1,516 +1,199 @@
-"""
-Raw-pixel intra-class PCA: one PNG per class (PC1 vs PC2), axis labels only.
+"""Generate the retained four-panel intra-class PCA density figure."""
 
-Prints k90/k95/k99 metrics to the console for each class.
-
-Outputs:
-    visualizations/pca/pca_scatter_<dataset>_<class>.png — one panel per class (tight per-class zoom)
-
-    visualizations/pca/intraclass_pca_scatter_2x2.svg — four-panel grid (vector, transparent)
-    visualizations/pca/intraclass_pca_scatter_2x2.png — same layout raster preview
-
-The 2×2 uses **shared** square PC limits (all classes pooled) so panels align; legend at bottom.
-
-Run from project root:
-    python scripts/PCA_Analysis.py
-
-Edit DATASETS at the top if your folders differ (e.g. cells under data2/).
-"""
-
-import os
-import re
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from scipy.stats import gaussian_kde
 from sklearn.decomposition import PCA
-from torchvision.datasets import ImageFolder
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
 
-# Typography (matplotlib uses points)
-FONT_FAMILY = "Arial"
-AXIS_TICK_FONT_PT = 15.0   # single-panel PNGs: tick numerals
-AXIS_LABEL_FONT_PT = 18.0  # single-panel PNGs: “PC1 (..% variance)”
-
-# 2×2 poster (matplotlib fontsize is in pt; px @ 96dpi → pt via px * 72/96)
-POSTER_30PX_PT = 30.0 * 72.0 / 96.0
-POSTER_36PX_PT = 36.0 * 72.0 / 96.0  # PC1/PC2 lines include variance %
-AXIS_LABEL_FONT_2X2_PT = POSTER_36PX_PT
-AXIS_TICK_FONT_2X2_PT = POSTER_30PX_PT
-LEGEND_FONT_2X2_PT = POSTER_30PX_PT
-
-plt.rcParams["font.family"] = "sans-serif"
-plt.rcParams["font.sans-serif"] = [
-    "Arial",
-    "Helvetica",
-    "Liberation Sans",
-    "DejaVu Sans",
-    "sans-serif",
-]
-
-# ─────────────────────────────────────────────
-# CONFIGURATION
-# ─────────────────────────────────────────────
+ROOT = Path(__file__).resolve().parent.parent
 DATASETS = {
-    "cells": "data2",  # subfolders: e.g. Euploid2/ Aneuploid2/
-    "pneumonia": "data4",  # subfolders: normal/ pneumonia/
+    "cells": ROOT / "data2",
+    "pneumonia": ROOT / "data4",
 }
+OUTPUT = ROOT / "visualizations" / "pca" / "figureB_density_scatter.png"
 
-OUT_DIR = os.path.join("visualizations", "pca")
-os.makedirs(OUT_DIR, exist_ok=True)
-
-# Scatter color per canonical class (matches legend_label(); folders may be Euploid2/, normal/, etc.).
 CLASS_COLORS = {
-    "normal": "#F4B942",
-    "pneumonia": "#B7510A",
-    "aneuploid": "#1A5276",
-    "euploid": "#5DADE2",
+    "aneuploid": "#4C9ED9",
+    "euploid": "#FF9F55",
+    "normal": "#69C36D",
+    "pneumonia": "#E84A5F",
 }
 
-# Fixed output geometry: inch × dpi = pixel size (same for every PNG).
-FIG_INCHES = 7.0
-FIG_DPI = 200
-
-# Combined 2×2 figure (SVG + PNG): grid size; tight pooled zoom for poster.
-FIG_2X2_INCHES = (15.5, 12.0)
-GRID_SHARED_PAD_FRAC = 0.01
-# Trim pooled PC coordinates before shared square box (stronger zoom).
-GRID_POOL_PERCENTILES: tuple[float, float] | None = (2.5, 97.5)
-GRID_POOL_PERCENTILE_MIN_N = 100
-
-# Tighter zoom: trim outliers from axis range + small padding (less empty margin).
-AXIS_PAD_FRAC = 0.015
-# Use (low, high) percentiles for limits; set to None to use min/max only.
-AXIS_PERCENTILES: tuple[float, float] | None = (1.0, 99.0)
-MIN_SAMPLES_FOR_PERCENTILES = 20
-
-LEGEND_ORDER = ("normal", "pneumonia", "aneuploid", "euploid")
+IMAGE_TRANSFORM = transforms.Compose(
+    [
+        transforms.Grayscale(),
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
+    ]
+)
 
 
-def legend_label(class_name: str) -> str:
-    s = class_name.lower()
-    if "aneuploid" in s:
-        return "aneuploid"
-    if "euploid" in s:
-        return "euploid"
-    if "pneumonia" in s:
-        return "pneumonia"
-    if "normal" in s:
-        return "normal"
-    return class_name
+def canonical_class_name(folder_name: str) -> str:
+    name = folder_name.lower()
+    for class_name in CLASS_COLORS:
+        if class_name in name:
+            return class_name
+    return folder_name
 
 
-def color_for_class_folder(class_name: str) -> str:
-    lab = legend_label(class_name)
-    c = CLASS_COLORS.get(lab)
-    if c is None:
-        print(f"    WARNING: no CLASS_COLORS entry for label {lab!r} ({class_name}); using gray")
-        return "#888888"
-    return c
-
-
-transform = transforms.Compose([
-    transforms.Grayscale(),
-    transforms.Resize((128, 128)),
-    transforms.ToTensor(),
-])
-
-
-def safe_filename(name: str) -> str:
-    return re.sub(r"[^\w\-]+", "_", name).strip("_") or "class"
-
-
-def style_pc_axes(
-    ax,
-    ve: np.ndarray,
-    *,
-    label_pt: float | None = None,
-    tick_pt: float | None = None,
-) -> None:
-    """Arial; label_pt / tick_pt default to single-panel constants."""
-    lp = AXIS_LABEL_FONT_PT if label_pt is None else label_pt
-    tp = AXIS_TICK_FONT_PT if tick_pt is None else tick_pt
-    ax.set_xlabel(
-        f"PC1 ({ve[0]:.1f}% variance)",
-        fontsize=lp,
-        fontfamily=FONT_FAMILY,
-    )
-    ax.set_ylabel(
-        f"PC2 ({ve[1]:.1f}% variance)",
-        fontsize=lp,
-        fontfamily=FONT_FAMILY,
-    )
-    ax.tick_params(
-        axis="both",
-        which="major",
-        labelsize=tp,
-    )
-    for t in list(ax.get_xticklabels()) + list(ax.get_yticklabels()):
-        t.set_fontfamily(FONT_FAMILY)
-
-
-def load_class(data_dir: str, class_name: str) -> np.ndarray:
-    """All images in one class folder → (n, 16384) float32."""
-    dataset = ImageFolder(root=data_dir, transform=transform)
+def load_class_images(data_dir: Path, class_name: str) -> np.ndarray:
+    dataset = ImageFolder(root=data_dir, transform=IMAGE_TRANSFORM)
     target = dataset.class_to_idx[class_name]
     images = [
-        img.numpy().flatten()
-        for img, label in dataset
+        image.numpy().ravel()
+        for image, label in dataset
         if label == target
     ]
-    X = np.array(images, dtype=np.float32)
-    print(f"    {class_name:20s}  n={X.shape[0]}")
-    return X
+    return np.asarray(images, dtype=np.float32)
 
 
-def _k_at_cumulative_threshold(cumvar: np.ndarray, th: float) -> int:
-    """Smallest k with cumulative variance ≥ th; if never, len(cumvar)+1."""
-    if cumvar.size == 0:
-        return 0
-    i = int(np.searchsorted(cumvar, th, side="left"))
-    return i + 1
+def components_for_variance(cumulative_variance: np.ndarray, threshold: float) -> int:
+    return int(np.searchsorted(cumulative_variance, threshold, side="left") + 1)
 
 
-def intraclass_pca_full(X: np.ndarray) -> dict | None:
-    """
-    One PCA fit per class for k90 metrics and first two PCs for scatter.
-    Returns None if <3 samples or <2 PCs.
-    """
-    if X.shape[0] < 3:
-        return None
-    n_full = min(X.shape[0] - 1, X.shape[1], 500)
-    if n_full < 2:
-        return None
-    pca = PCA(n_components=n_full)
-    Z = pca.fit_transform(X)
-    evr = pca.explained_variance_ratio_
-    cumvar = np.cumsum(evr)
-    k90 = _k_at_cumulative_threshold(cumvar, 0.90)
-    k95 = _k_at_cumulative_threshold(cumvar, 0.95)
-    k99 = _k_at_cumulative_threshold(cumvar, 0.99)
-    pc1_pct = float(evr[0]) * 100.0
-    coords = Z[:, :2]
-    ve2 = evr[:2] * 100
+def analyze_class(images: np.ndarray) -> dict:
+    if len(images) < 3:
+        raise ValueError("At least three images are required for PCA")
+
+    component_count = min(len(images) - 1, images.shape[1], 500)
+    pca = PCA(n_components=component_count)
+    projected = pca.fit_transform(images)
+    explained = pca.explained_variance_ratio_
+    coordinates = projected[:, :2]
+    center = coordinates.mean(axis=0)
+    distances = np.linalg.norm(coordinates - center, axis=1)
+
     return {
-        "coords": coords,
-        "ve": ve2,
-        "k90": k90,
-        "k95": k95,
-        "k99": k99,
-        "pc1_pct": pc1_pct,
-        "n_comp_fit": n_full,
-        "cumvar_last_pct": float(cumvar[-1]) * 100.0,
+        "coordinates": coordinates,
+        "center": center,
+        "explained": explained[:2] * 100,
+        "k90": components_for_variance(np.cumsum(explained), 0.90),
+        "mean_distance": float(distances.mean()),
+        "mean_spread": float(distances.std()),
     }
 
 
-def _axis_limits_1d(arr: np.ndarray) -> tuple[float, float]:
-    """PC coordinate range: percentile trim (optional) + thin padding → tighter zoom."""
-    n = arr.shape[0]
-    if (
-        AXIS_PERCENTILES is not None
-        and n >= MIN_SAMPLES_FOR_PERCENTILES
-        and AXIS_PERCENTILES[1] > AXIS_PERCENTILES[0]
-    ):
-        lo = float(np.percentile(arr, AXIS_PERCENTILES[0]))
-        hi = float(np.percentile(arr, AXIS_PERCENTILES[1]))
-    else:
-        lo, hi = float(arr.min()), float(arr.max())
-    span = max(hi - lo, 1e-9)
-    pad = span * AXIS_PAD_FRAC
-    return lo - pad, hi + pad
-
-
-def _shared_xy_limits_pool(
-    all_results: list[dict],
-    pad_frac: float,
-    percentiles: tuple[float, float] | None,
-    min_n_percentile: int,
-) -> tuple[float, float, float, float]:
-    xs = np.concatenate([r["coords"][:, 0] for r in all_results])
-    ys = np.concatenate([r["coords"][:, 1] for r in all_results])
-    n = xs.shape[0]
-    if (
-        percentiles is not None
-        and n >= min_n_percentile
-        and percentiles[1] > percentiles[0]
-    ):
-        x_min = float(np.percentile(xs, percentiles[0]))
-        x_max = float(np.percentile(xs, percentiles[1]))
-        y_min = float(np.percentile(ys, percentiles[0]))
-        y_max = float(np.percentile(ys, percentiles[1]))
-    else:
-        x_min, x_max = float(xs.min()), float(xs.max())
-        y_min, y_max = float(ys.min()), float(ys.max())
-    rx = max(x_max - x_min, 1e-9)
-    ry = max(y_max - y_min, 1e-9)
-    px = rx * pad_frac
-    py = ry * pad_frac
-    return x_min - px, x_max + px, y_min - py, y_max + py
-
-
-def _square_axis_limits_pool(all_results: list[dict], pad_frac: float) -> tuple[float, float, float, float]:
-    """Square window in PC space covering all classes (for comparable 2×2 panels)."""
-    x0, x1, y0, y1 = _shared_xy_limits_pool(
-        all_results,
-        pad_frac,
-        GRID_POOL_PERCENTILES,
-        GRID_POOL_PERCENTILE_MIN_N,
-    )
-    cx = (x0 + x1) / 2
-    cy = (y0 + y1) / 2
-    half = max(x1 - x0, y1 - y0) / 2
-    return cx - half, cx + half, cy - half, cy + half
-
-
-def print_metrics_console(all_results: list[dict]) -> None:
-    # ASCII only: Windows consoles often use cp1252 and cannot print box-drawing chars.
-    print("\n" + "=" * 92)
-    print("  RAW-PIXEL INTRA-CLASS PCA METRICS  (16,384-D flattened; sklearn PCA centers columns)")
-    print("=" * 92)
-    print(
-        f"  {'Class':<18} {'Dataset':<12} {'n':>7}  {'k90':>6} {'k95':>6} {'k99':>6}  "
-        f"{'PC1%':>8}  {'n_PC_fit':>9}  {'cumvar@fit':>11}"
-    )
-    print("  " + "-" * 88)
-    for r in all_results:
-        print(
-            f"  {r['class_name']:<18} {r['dataset']:<12} {r['n_samples']:>7}  "
-            f"{r['k90']:>6} {r['k95']:>6} {r['k99']:>6}  "
-            f"{r['pc1_pct']:>7.2f}%  {r['n_comp_fit']:>9}  {r['cumvar_last_pct']:>10.2f}%"
-        )
-    print("=" * 92)
-    print(
-        "  k90/k95/k99: smallest # of PCs with cumulative variance >= 90/95/99% (within class).\n"
-        "  If not reached within n_PC_fit components, value is n_PC_fit+1.\n"
-        "  cumvar@fit: cumulative variance from all fitted PCs."
-    )
-
-
-def save_individual_scatters(all_results: list[dict]) -> None:
-    """One transparent PNG per class: only PC1/PC2 axis labels (variance %)."""
-    print("\n-- Saving one scatter plot per class --")
-
-    px = int(round(FIG_INCHES * FIG_DPI))
-    zoom_note = (
-        f"zoom: pad={AXIS_PAD_FRAC:g}"
-        + (
-            f", percentiles={AXIS_PERCENTILES}"
-            if AXIS_PERCENTILES
-            else ", limits=min/max"
-        )
-        + f" (if n>={MIN_SAMPLES_FOR_PERCENTILES})"
-    )
-    print(
-        f"  Same canvas every file: {FIG_INCHES:g}x{FIG_INCHES:g} in @ {FIG_DPI} dpi -> {px}x{px} px. "
-        f"{zoom_note}"
-    )
-
-    for r in all_results:
-        coords = r["coords"]
-        ve = r["ve"]
-        color = r["color"]
-
-        x_lo, x_hi = _axis_limits_1d(coords[:, 0])
-        y_lo, y_hi = _axis_limits_1d(coords[:, 1])
-
-        fig, ax = plt.subplots(figsize=(FIG_INCHES, FIG_INCHES))
-        ax.scatter(
-            coords[:, 0],
-            coords[:, 1],
-            c=color,
-            alpha=0.4,
-            s=14,
-            edgecolors="none",
-        )
-        style_pc_axes(ax, ve)
-        ax.set_xlim(x_lo, x_hi)
-        ax.set_ylim(y_lo, y_hi)
-        ax.set_aspect("equal", adjustable="box")
-        ax.grid(alpha=0.25)
-
-        ax.set_facecolor("none")
-        fig.patch.set_facecolor("none")
-        fig.patch.set_alpha(0)
-
-        slug = safe_filename(r["class_name"])
-        fname = f"pca_scatter_{r['dataset']}_{slug}.png"
-        path = os.path.join(OUT_DIR, fname)
-
-        plt.subplots_adjust(left=0.11, right=0.98, top=0.98, bottom=0.11)
-        # Do not use bbox_inches="tight" — it crops differently per figure → uneven PNG sizes.
-        plt.savefig(
-            path,
-            dpi=FIG_DPI,
-            facecolor="none",
-            transparent=True,
-        )
-        plt.close(fig)
-        print(f"  Saved -> {path}")
-
-
-def save_scatter_2x2_grid(all_results: list[dict]) -> None:
-    """
-    One 2×2 figure: shared square limits, PC axis labels, legend, no title.
-    Writes SVG (vector) and PNG for quick viewing.
-    """
-    if len(all_results) > 4:
-        print(
-            f"\nWARNING: {len(all_results)} classes; 2x2 uses the first 4 in DATASETS / class order only."
-        )
-    rows = all_results[:4]
-    if not rows:
+def add_density_contours(ax, coordinates: np.ndarray, color: str) -> None:
+    if len(coordinates) < 4:
         return
 
-    print("\n-- Saving combined 2x2 (SVG + PNG) --")
-    ax_lo, ax_hi, ay_lo, ay_hi = _square_axis_limits_pool(rows, GRID_SHARED_PAD_FRAC)
-    print(
-        f"  Shared square limits: PC1 in [{ax_lo:.2f}, {ax_hi:.2f}], "
-        f"PC2 in [{ay_lo:.2f}, {ay_hi:.2f}]"
-    )
-    if GRID_POOL_PERCENTILES:
-        print(
-            f"  Pooled zoom: percentiles={GRID_POOL_PERCENTILES} (if n>={GRID_POOL_PERCENTILE_MIN_N}), "
-            f"pad_frac={GRID_SHARED_PAD_FRAC}"
-        )
-
-    fig, axes = plt.subplots(2, 2, figsize=FIG_2X2_INCHES)
-    axes_flat = axes.flatten()
-
-    for ax, r in zip(axes_flat, rows):
-        coords = r["coords"]
-        ve = r["ve"]
-        color = r["color"]
-        ax.scatter(
-            coords[:, 0],
-            coords[:, 1],
-            c=color,
-            alpha=0.4,
-            s=18,
-            edgecolors="none",
-        )
-        style_pc_axes(
-            ax,
-            ve,
-            label_pt=AXIS_LABEL_FONT_2X2_PT,
-            tick_pt=AXIS_TICK_FONT_2X2_PT,
-        )
-        ax.set_xlim(ax_lo, ax_hi)
-        ax.set_ylim(ay_lo, ay_hi)
-        ax.set_aspect("equal", adjustable="box")
-        ax.grid(alpha=0.25)
-        ax.set_facecolor("none")
-
-    for j in range(len(rows), 4):
-        axes_flat[j].set_visible(False)
-
-    label_to_color: dict[str, str] = {}
-    for r in rows:
-        label_to_color[legend_label(r["class_name"])] = r["color"]
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="none",
-            markerfacecolor=label_to_color[lb],
-            markeredgecolor="none",
-            markersize=11,
-            linestyle="none",
-            label=lb,
-        )
-        for lb in LEGEND_ORDER
-        if lb in label_to_color
+    x = coordinates[:, 0]
+    y = coordinates[:, 1]
+    x_pad = max(float(np.ptp(x)) * 0.08, 1e-6)
+    y_pad = max(float(np.ptp(y)) * 0.08, 1e-6)
+    grid_x, grid_y = np.mgrid[
+        x.min() - x_pad : x.max() + x_pad : 90j,
+        y.min() - y_pad : y.max() + y_pad : 90j,
     ]
-    leg = fig.legend(
-        handles=legend_handles,
-        loc="lower center",
-        ncol=min(4, len(legend_handles)),
-        bbox_to_anchor=(0.5, 0.02),
-        frameon=False,
-        fontsize=LEGEND_FONT_2X2_PT,
-        prop={"family": FONT_FAMILY},
-    )
-    for text in leg.get_texts():
-        text.set_fontfamily(FONT_FAMILY)
 
-    fig.patch.set_facecolor("none")
-    fig.patch.set_alpha(0)
+    try:
+        density = gaussian_kde(np.vstack([x, y]))(
+            np.vstack([grid_x.ravel(), grid_y.ravel()])
+        ).reshape(grid_x.shape)
+    except np.linalg.LinAlgError:
+        return
 
-    plt.subplots_adjust(
-        left=0.07,
-        right=0.98,
-        top=0.97,
-        bottom=0.12,
-        hspace=0.12,
-        wspace=0.26,
+    positive_density = density[density > 0]
+    if positive_density.size:
+        levels = np.quantile(positive_density, [0.70, 0.82, 0.90, 0.96])
+        ax.contour(
+            grid_x,
+            grid_y,
+            density,
+            levels=np.unique(levels),
+            colors=color,
+            linestyles="--",
+            linewidths=0.8,
+        )
+
+
+def plot_panel(ax, result: dict) -> None:
+    coordinates = result["coordinates"]
+    color = result["color"]
+    class_name = result["class_name"]
+    explained = result["explained"]
+
+    ax.scatter(
+        coordinates[:, 0],
+        coordinates[:, 1],
+        s=10,
+        alpha=0.45,
+        color=color,
+        edgecolors="none",
+    )
+    add_density_contours(ax, coordinates, color)
+    ax.scatter(
+        *result["center"],
+        s=55,
+        color=color,
+        edgecolor="white",
+        linewidth=1.2,
+        zorder=4,
     )
 
-    base = os.path.join(OUT_DIR, "intraclass_pca_scatter_2x2")
-    svg_path = base + ".svg"
-    png_path = base + ".png"
+    ax.set_title(
+        f"{class_name}\n"
+        f"k90 = {result['k90']}  ·  mean dist = {result['mean_distance']:.1f}",
+        fontsize=10,
+        weight="bold",
+    )
+    ax.set_xlabel(f"PC1 ({explained[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({explained[1]:.1f}%)")
+    ax.grid(alpha=0.25)
 
-    plt.savefig(
-        svg_path,
-        format="svg",
-        facecolor="none",
-        transparent=True,
+    legend_handle = Line2D(
+        [], [], linestyle="--", color=color, label=(
+            f"n = {result['sample_count']}\n"
+            f"mean spread = {result['mean_spread']:.2f}"
+        )
     )
-    plt.savefig(
-        png_path,
-        dpi=FIG_DPI,
-        facecolor="none",
-        transparent=True,
+    ax.legend(handles=[legend_handle], loc="upper right", fontsize=7)
+
+
+def main() -> None:
+    missing = [path for path in DATASETS.values() if not path.is_dir()]
+    if missing:
+        missing_list = ", ".join(str(path) for path in missing)
+        raise SystemExit(f"Missing required dataset directories: {missing_list}")
+
+    results = []
+    for dataset_name, data_dir in DATASETS.items():
+        dataset = ImageFolder(root=data_dir)
+        for folder_name in dataset.classes:
+            images = load_class_images(data_dir, folder_name)
+            analysis = analyze_class(images)
+            canonical_name = canonical_class_name(folder_name)
+            analysis.update(
+                {
+                    "class_name": folder_name,
+                    "sample_count": len(images),
+                    "color": CLASS_COLORS.get(canonical_name, "#777777"),
+                }
+            )
+            results.append(analysis)
+
+    fig, axes = plt.subplots(1, len(results), figsize=(20.48, 5.27))
+    axes = np.atleast_1d(axes)
+    for ax, result in zip(axes, results):
+        plot_panel(ax, result)
+
+    fig.suptitle(
+        "Intra-class PCA scatter — each dot is one image\n"
+        "Tight clusters with concentric density rings indicate low image diversity",
+        fontsize=13,
+        weight="bold",
     )
+    fig.tight_layout(rect=(0, 0, 1, 0.91))
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(OUTPUT, dpi=100, facecolor="white")
     plt.close(fig)
-    print(f"  Saved -> {svg_path}")
-    print(f"  Saved -> {png_path}")
+    print(f"Saved {OUTPUT}")
 
 
 if __name__ == "__main__":
-    print("Loading images (flattened raw pixels, intra-class PCA)...\n")
-
-    all_results = []
-
-    for ds_name, data_dir in DATASETS.items():
-        if not os.path.exists(data_dir):
-            print(f"WARNING: '{data_dir}' not found - skipping {ds_name}")
-            continue
-
-        dummy = ImageFolder(root=data_dir)
-        class_names = dummy.classes
-
-        print(f"{ds_name.upper()} - {data_dir}")
-        print(f"  classes: {class_names}")
-
-        for cls_name in class_names:
-            X = load_class(data_dir, cls_name)
-            stats = intraclass_pca_full(X)
-
-            if stats is None:
-                print(f"    [skip] {cls_name}: need >=3 samples for intra-class PCA")
-                continue
-
-            all_results.append(
-                {
-                    "class_name": cls_name,
-                    "dataset": ds_name,
-                    "color": color_for_class_folder(cls_name),
-                    "n_samples": X.shape[0],
-                    "coords": stats["coords"],
-                    "ve": stats["ve"],
-                    "k90": stats["k90"],
-                    "k95": stats["k95"],
-                    "k99": stats["k99"],
-                    "pc1_pct": stats["pc1_pct"],
-                    "n_comp_fit": stats["n_comp_fit"],
-                    "cumvar_last_pct": stats["cumvar_last_pct"],
-                }
-            )
-
-    if len(all_results) == 0:
-        print("\nNo data loaded. Update DATASETS paths at top of script.")
-    else:
-        print_metrics_console(all_results)
-        save_scatter_2x2_grid(all_results)
-        save_individual_scatters(all_results)
-        print(f"\nOutput: {OUT_DIR}/")
+    main()

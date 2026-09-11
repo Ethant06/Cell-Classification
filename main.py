@@ -4,7 +4,6 @@ from src.model import CNN
 from src.train import train
 import matplotlib.pyplot as plt
 import torch, numpy as np, random, os, yaml, argparse
-import copy
 
 DEFAULT_CONFIG_FILES = [
     "baseline.yaml",
@@ -28,88 +27,6 @@ PNEUMONIA_CONFIG_FILES = [
 ]
 
 #---------------------Visualization Block------------------------------
-def gatherAccuracies():
-    """
-    Collect final test accuracy for each experiment (first seed only for bar chart).
-    Reads accuracy.txt if present; otherwise uses mean of accuracies/seed_*.txt.
-    """
-    accuracies = {}
-    for exp in os.listdir('all_plots'):
-        exp_dir = os.path.join('all_plots', exp)
-        accuracy_path = os.path.join(exp_dir, 'accuracy.txt')
-        seed_dir = os.path.join(exp_dir, 'accuracies')
-        if os.path.isfile(accuracy_path):
-            with open(accuracy_path, 'r') as f:
-                acc = float(f.read().strip())
-        elif os.path.isdir(seed_dir):
-            vals = []
-            for fname in os.listdir(seed_dir):
-                if fname.endswith('.txt'):
-                    with open(os.path.join(seed_dir, fname), 'r') as f:
-                        vals.append(float(f.read().strip()))
-            acc = float(np.mean(vals)) if vals else 0.0
-        else:
-            continue
-        accuracies[exp] = acc
-    return accuracies
-
-
-def plotAccuracies(accuracies):
-    """
-    accuracies parameter - gatherAccuracies result
-    Plots a bar chart comparing test accuracy across experiments only first seed.
-    """
-    exp_names = list(accuracies.keys())
-    exp_acc = list(accuracies.values())
-
-    plt.figure(figsize = (11, 9))
-    bars = plt.bar(exp_names, exp_acc, color = 'blue', edgecolor = 'black')
-    plt.title('Test Accuracy Per Experiment', fontsize=14, weight='bold')
-    plt.ylim(0, 1.0)
-    plt.ylabel('Accuracies')
-    plt.xticks(rotation=20, ha='right', fontsize=8)
-    for bar, val in zip(bars, exp_acc):
-        plt.text(bar.get_x() + bar.get_width()/2, val + 0.01, val, ha='center', va='bottom', fontsize=10)
-    plt.tight_layout()
-    plot_path = os.path.join('visualizations', 'accuracy_summary_plot')
-    os.makedirs(plot_path, exist_ok=True)
-    plt.savefig(os.path.join(plot_path, 'accuracy_comparison.png'))
-
-def seed_statistics():
-    """
-    Computes mean and standard deviation of test accuracy
-    across random seeds for each experiment.
-
-    Result directory structure expected:
-        all_plots/
-            experiment_name/
-                accuracies/
-                    seed_12.txt
-                    seed_5.txt
-
-    Returns:
-        dict:
-        {experiment_name: (mean_accuracy, std_accuracy)}
-    """
-    results = {}
-    base_dir = "all_plots"
-
-    for exp in os.listdir(base_dir):
-        exp_dir = os.path.join(base_dir, exp)
-        seed_dir = os.path.join(exp_dir, 'accuracies')
-
-        seed_values = []
-        for seed_file in os.listdir(seed_dir):
-            with open(os.path.join(seed_dir, seed_file), 'r') as f:
-                seed_values.append(float(f.read().strip()))
-
-        if seed_values:
-            mean_acc = float(np.mean(seed_values))
-            std_acc = float(np.std(seed_values))
-            results[exp] = (mean_acc, std_acc)
-    return results
-
-
 # Cells (data2) vs lungs (data4) plot folders — order = x-axis groups, left/right bar per group.
 ABLATION_GROUP_BARS = [
     ("Original", "subset_baseline_plot", "pneumonia_subset_baseline"),
@@ -148,11 +65,10 @@ def read_seed_mean_std(exp_folder: str):
     return float(np.mean(seed_values)), float(np.std(seed_values))
 
 
-def plot_seed_results(results=None):
+def plot_seed_results():
     """
     Grouped bar chart: one x position per ablation setting; two bars (Cells vs Lungs)
     with mean ± std across seeds. Groups omitted if either modality has no seed files.
-    ``results`` is kept for call-site compatibility but not used (stats read from disk).
     """
     group_labels = []
     cells_means, cells_stds = [], []
@@ -172,7 +88,7 @@ def plot_seed_results(results=None):
     if not group_labels:
         print(
             "plot_seed_results: no paired ablation folders with seed accuracies; "
-            "skipping seed_ablation_comparison (.png / .svg)",
+            "skipping seed_ablation_comparison.png",
             flush=True,
         )
         return
@@ -240,7 +156,6 @@ def plot_seed_results(results=None):
     os.makedirs(save_dir, exist_ok=True)
     base = os.path.join(save_dir, "seed_ablation_comparison")
     plt.savefig(base + ".png", dpi=150, facecolor="white")
-    plt.savefig(base + ".svg", format="svg", facecolor="white")
     plt.close(fig)
 #----------------------End of Visualization Block----------------------------
 
@@ -278,10 +193,7 @@ def run_experiment(config, seed, config_filename=None):
     """
     setSeed(seed)
 
-    if seed == seeds[0]: #save plots for the first seed only
-        save_plots = True
-    else:
-        save_plots = False
+    save_report = seed == seeds[0]
 
     train_loader, test_loader = load_datasets(config, seed)
     model = CNN(config)
@@ -290,8 +202,8 @@ def run_experiment(config, seed, config_filename=None):
         f"Run: {run_id} | experiment_type={config['experiment_type']} | Seed={seed}",
         flush=True,
     )
-    train_accuracy = train(model, train_loader, config, save_plots)
-    accuracy = str(evaluate(model, test_loader, config, save_plots)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
+    train_accuracy = train(model, train_loader, config)
+    accuracy = str(evaluate(model, test_loader, config, save_report)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
 
 
     # make folder containing test accuracies for each seed per experiment
@@ -365,8 +277,4 @@ if __name__ == '__main__':
         for seed in seeds:
             run_experiment(base_config, seed, cfg)
 
-    # these gather and generate the accuracies and records it in visualizations/
-    accuracies = gatherAccuracies()
-    plotAccuracies(accuracies)
-    seed_results = seed_statistics()
-    plot_seed_results(seed_results)
+    plot_seed_results()
