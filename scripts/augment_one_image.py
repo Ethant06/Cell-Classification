@@ -3,12 +3,17 @@ Create augmented views of one or more images for figures (training code unchange
 
 Rotation/flip are fixed by --rotation-deg; random erasing uses fresh entropy each run (no fixed seed).
 
-For each input image, writes the same five PNGs into its own output folder (see below).
+For each input image, writes the same five PNGs into its own output folder (see below),
+unless ``--erase-only`` is set (then: original 128×128 gray + one erase+normalize figure).
 
 Usage (repo root):
   python scripts/augment_one_image.py example_cell.png
   python scripts/augment_one_image.py example_cell.png data4/normal/normal137.png
   python scripts/augment_one_image.py normal137.png --out my_exports   # all images under my_exports/<name>_augmented/
+  python scripts/augment_one_image.py poster_visuals/normal137.png --out augmented_outputs_normal137 --erase-only --erase-figure-name erase_regularized_normal.png
+  # Same erase box style as 05_rot_flip_plus_random_erasing_reg.png: default --erase-scale/--erase-ratio/--erase-value; add --erase-near-center for cell figures.
+  # Same patch *geometry* as rotate_flip_erase on the aligned pair (diff the images), on an unrotated source:
+  # python scripts/augment_one_image.py augmented_outputs_example_cell/original_euploid.png --out augmented_outputs_example_cell --erase-only --erase-figure-name erase_only_same_box_euploid.png --match-erase-box augmented_outputs_example_cell/rotate_flip_euploid.png augmented_outputs_example_cell/rotate_flip_erase_euploid.png
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import argparse
 import secrets
 from pathlib import Path
 
+import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -96,6 +102,58 @@ def random_erasing_center_focused(
     return out
 
 
+def erase_bbox_from_image_pair(
+    path_base: Path,
+    path_erased: Path,
+    *,
+    diff_thresh: int = 14,
+) -> tuple[int, int, int, int]:
+    """
+    Axis-aligned bbox of the erase patch: pixels that differ between ``path_base``
+    (e.g. rotate+flip, no erase) and ``path_erased`` (same geometry + erase).
+    Returns (top, left, h, w) in pixel coords, suitable for a 128×128 tensor.
+    """
+    a = np.asarray(Image.open(path_base).convert("L"), dtype=np.int16)
+    b = np.asarray(Image.open(path_erased).convert("L"), dtype=np.int16)
+    if a.shape != b.shape:
+        raise ValueError(f"Image shape mismatch: {a.shape} vs {b.shape}")
+    mask = np.abs(b - a) > diff_thresh
+    if not np.any(mask):
+        raise ValueError(
+            f"No differing pixels above threshold {diff_thresh} — check paths or try a lower threshold."
+        )
+    ys, xs = np.where(mask)
+    top, left = int(ys.min()), int(xs.min())
+    h = int(ys.max() - ys.min() + 1)
+    w = int(xs.max() - xs.min() + 1)
+    return top, left, h, w
+
+
+def apply_fixed_erase_rect(
+    x: torch.Tensor,
+    top: int,
+    left: int,
+    h: int,
+    w: int,
+    erase_fill: float | str,
+) -> torch.Tensor:
+    """Fill axis-aligned rectangle on tensor x (C, H, W) in [0, 1], like RandomErasing."""
+    C, H, W = x.shape
+    device, dtype = x.device, x.dtype
+    top = max(0, min(top, H - 1))
+    left = max(0, min(left, W - 1))
+    h = max(1, min(h, H - top))
+    w = max(1, min(w, W - left))
+    out = x.clone()
+    if isinstance(erase_fill, str) and erase_fill == "random":
+        out[:, top : top + h, left : left + w] = torch.rand(
+            C, h, w, device=device, dtype=dtype
+        )
+    else:
+        out[:, top : top + h, left : left + w] = float(erase_fill)
+    return out
+
+
 def output_dir_for(src: Path, out_parent: Path | None, n_inputs: int) -> Path:
     """Pick folder so multiple images never overwrite each other."""
     stem = src.stem
@@ -161,6 +219,57 @@ def process_one(
     denorm_to_pil(x).save(out_dir / "05_rot_flip_plus_random_erasing_reg.png")
 
 
+def process_erase_only(
+    src: Path,
+    out_dir: Path,
+    *,
+    figure_name: str,
+    erase_scale: tuple[float, float],
+    erase_ratio: tuple[float, float],
+    erase_near_center: bool,
+    erase_center_fraction: float,
+    erase_fill: float | str,
+    fixed_rect: tuple[int, int, int, int] | None = None,
+) -> None:
+    """
+    Same erase+normalize step as ``process_one`` (always-on erase, p=1.0), but on the
+    resized original only—no rotation or horizontal flip. Uses the same box sampling
+    as ``05_rot_flip_plus_random_erasing_reg.png`` when CLI flags match.
+
+    If ``fixed_rect`` is (top, left, h, w), that rectangle is filled instead of random
+    sampling (for matching a patch from ``--match-erase-box``).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pil = Image.open(src).convert("L")
+    pil = pil.resize((128, 128), Image.Resampling.BILINEAR)
+
+    pil.save(out_dir / "01_original_128_gray.png")
+
+    to_tensor = transforms.ToTensor()
+    normalize = transforms.Normalize(mean=[0.5], std=[0.5])
+    x = to_tensor(pil)
+    if fixed_rect is not None:
+        t, l, h, w = fixed_rect
+        x = apply_fixed_erase_rect(x, t, l, h, w, erase_fill)
+    else:
+        torch.manual_seed(secrets.randbelow(2**31))
+        if erase_near_center:
+            x = random_erasing_center_focused(
+                x,
+                scale=erase_scale,
+                ratio=erase_ratio,
+                value=erase_fill,
+                center_fraction=erase_center_fraction,
+            )
+        else:
+            erase = transforms.RandomErasing(
+                p=1.0, scale=erase_scale, ratio=erase_ratio, value=erase_fill
+            )
+            x = erase(x.unsqueeze(0)).squeeze(0)
+    x = normalize(x)
+    denorm_to_pil(x).save(out_dir / figure_name)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Export augmented variants of one or more images.")
     p.add_argument(
@@ -212,7 +321,45 @@ def main() -> None:
     )
     p.add_argument("--legacy-rotate", action="store_true")
     p.add_argument("--fill", type=int, default=0, metavar="0-255")
+    p.add_argument(
+        "--erase-only",
+        action="store_true",
+        help=(
+            "Only write 01_original_128_gray.png and the erase+normalize image. "
+            "Uses the same erase options as the full export (--erase-scale, --erase-ratio, "
+            "--erase-value, --erase-near-center); ignores rotation/flip."
+        ),
+    )
+    p.add_argument(
+        "--erase-figure-name",
+        type=str,
+        default="erase_regularized.png",
+        metavar="NAME.png",
+        help="Filename for the erase-only result (used with --erase-only).",
+    )
+    p.add_argument(
+        "--match-erase-box",
+        nargs=2,
+        type=Path,
+        metavar=("BASE", "ERASED"),
+        default=None,
+        help=(
+            "With --erase-only: BASE = rotate+flip image without erase, ERASED = same with erase "
+            "(e.g. rotate_flip_euploid.png and rotate_flip_erase_euploid.png). "
+            "Infers patch bbox from pixel differences and applies the same top,left,h,w on the unrotated input."
+        ),
+    )
+    p.add_argument(
+        "--match-erase-thresh",
+        type=int,
+        default=14,
+        metavar="T",
+        help="Graylevel difference threshold for --match-erase-box (default 14).",
+    )
     args = p.parse_args()
+
+    if args.match_erase_box and not args.erase_only:
+        raise SystemExit("--match-erase-box requires --erase-only")
 
     es = tuple(args.erase_scale)
     er = tuple(args.erase_ratio)
@@ -238,6 +385,36 @@ def main() -> None:
             raise SystemExit(f"Not found: {src}")
 
     n = len(paths)
+    fixed_rect: tuple[int, int, int, int] | None = None
+    if args.match_erase_box:
+        bp = args.match_erase_box[0].expanduser().resolve()
+        ep = args.match_erase_box[1].expanduser().resolve()
+        if not bp.is_file() or not ep.is_file():
+            raise SystemExit(f"--match-erase-box: not found: {bp} or {ep}")
+        fixed_rect = erase_bbox_from_image_pair(bp, ep, diff_thresh=args.match_erase_thresh)
+        print(
+            f"Erase patch from pair (top, left, h, w) = {fixed_rect} "
+            f"(diff_thresh={args.match_erase_thresh})",
+            flush=True,
+        )
+
+    if args.erase_only:
+        for src in paths:
+            od = output_dir_for(src, args.out, n)
+            process_erase_only(
+                src,
+                od,
+                figure_name=args.erase_figure_name,
+                erase_scale=es,
+                erase_ratio=er,
+                erase_near_center=args.erase_near_center,
+                erase_center_fraction=cf,
+                erase_fill=erase_fill,
+                fixed_rect=fixed_rect,
+            )
+            print(f"Wrote (erase-only): {od / args.erase_figure_name}")
+        return
+
     for src in paths:
         od = output_dir_for(src, args.out, n)
         process_one(

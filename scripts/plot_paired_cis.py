@@ -1,10 +1,12 @@
 """
-Plot mean paired difference (aug - baseline) with 95% CI from statistics/paired/summary.csv
+Forest plot: paired mean difference (limited aug − limited baseline) ± 95% CI.
 
-Reads: statistics/paired/summary.csv  (run compute_paired_statistics.py first)
+Reads statistics/paired/summary.csv from compute_paired_statistics.py.
+One row per experiment type; on each row, up to two CIs (cells + pneumonia).
+
 Writes: statistics/paired/paired_difference_cis.png
-
-Top panel = cells, bottom panel = pneumonia. Vertical line at 0.
+         statistics/paired/paired_difference_cis.svg
+         (both with transparent figure/axes background)
 """
 
 from __future__ import annotations
@@ -15,9 +17,45 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Sans-serif stack (aligned with typical matplotlib / poster exports)
+plt.rcParams.update(
+    {
+        "font.family": "sans-serif",
+        "font.sans-serif": [
+            "Arial",
+            "Helvetica",
+            "DejaVu Sans",
+            "Liberation Sans",
+            "sans-serif",
+        ],
+    }
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 SUMMARY = ROOT / "statistics" / "paired" / "summary.csv"
 OUT_PNG = ROOT / "statistics" / "paired" / "paired_difference_cis.png"
+OUT_SVG = ROOT / "statistics" / "paired" / "paired_difference_cis.svg"
+
+MEAN_MARKERSIZE = 13.5
+CI_LINEWIDTH = 2.8
+CI_CAPTHICK = 2.8
+# X tick labels: base + 5px @ 96dpi + 6 pt
+X_TICK_LABEL_PT = 10.0 + 5.0 * 72.0 / 96.0 + 6.0
+
+CELL_COLOR = "#2E86AB"
+LUNG_COLOR = "#E8871E"
+
+# (summary.csv label suffix, y-axis display text). Top → bottom after invert_yaxis.
+ROW_ORDER: list[tuple[str, str]] = [
+    ("flip vs limited baseline", "flip vs baseline"),
+    ("rotation vs limited baseline", "rotated vs baseline"),
+    ("aug vs limited baseline", "rotate/flip vs baseline"),
+    ("erase vs limited baseline", "erase vs baseline"),
+]
+
+Y_DODGE = 0.08
+# Vertical gap between experiment-type rows (smaller = tighter groups).
+ROW_SPACING = 0.42
 
 
 def load_rows() -> list[dict[str, str]]:
@@ -27,39 +65,86 @@ def load_rows() -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def panel(ax, rows: list[dict], title: str) -> None:
-    if not rows:
-        ax.text(0.5, 0.5, "No rows", ha="center", va="center", transform=ax.transAxes)
-        ax.set_title(title)
-        return
-    labels = [r["label"].split(": ", 1)[-1] if ": " in r["label"] else r["label"] for r in rows]
-    means = np.array([float(r["mean_difference"]) for r in rows])
-    lo = np.array([float(r["ci95_low"]) for r in rows])
-    hi = np.array([float(r["ci95_high"]) for r in rows])
-    y = np.arange(len(rows))
-    xerr = np.vstack([means - lo, hi - means])
+def label_suffix(row: dict[str, str]) -> str:
+    lab = row["label"]
+    return lab.split(": ", 1)[-1] if ": " in lab else lab
 
-    ax.axvline(0.0, color="gray", linewidth=0.9, linestyle="--")
-    ax.errorbar(means, y, xerr=xerr, fmt="o", capsize=4, color="steelblue", ecolor="black", markersize=6)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=9)
-    ax.set_xlabel("Mean paired difference (aug − baseline) on test accuracy ± 95% CI")
-    ax.set_title(title)
-    ax.grid(True, axis="x", alpha=0.3)
+
+def plot_ci(ax, row: dict[str, str], y: float, color: str) -> None:
+    m = float(row["mean_difference"])
+    lo = float(row["ci95_low"])
+    hi = float(row["ci95_high"])
+    xerr = np.vstack([m - lo, hi - m])
+    ax.errorbar(
+        m,
+        y,
+        xerr=xerr,
+        fmt="o",
+        capsize=7,
+        elinewidth=CI_LINEWIDTH,
+        capthick=CI_CAPTHICK,
+        color=color,
+        ecolor="black",
+        markersize=MEAN_MARKERSIZE,
+        markeredgewidth=1.05,
+        markeredgecolor="black",
+        zorder=3,
+    )
 
 
 def main() -> None:
     rows = load_rows()
-    cells = [r for r in rows if r.get("dataset_family") == "cells"]
-    pneu = [r for r in rows if r.get("dataset_family") == "pneumonia"]
+    by_suffix: dict[str, dict[str, dict[str, str]]] = {"cells": {}, "pneumonia": {}}
+    for r in rows:
+        fam = r.get("dataset_family")
+        if fam not in by_suffix:
+            continue
+        by_suffix[fam][label_suffix(r)] = r
 
-    fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(10, 7), constrained_layout=True)
-    panel(ax0, cells, "Euploid / aneuploid (subset baseline vs augmentation)")
-    panel(ax1, pneu, "Pneumonia (subset baseline vs augmentation)")
+    n = len(ROW_ORDER)
+    row_y = np.arange(n) * ROW_SPACING
+    fig, ax = plt.subplots(figsize=(10, 4.35), constrained_layout=True)
+    ax.axvline(0.0, color="gray", linewidth=0.9, linestyle="--", zorder=1)
+
+    for i, (csv_key, _) in enumerate(ROW_ORDER):
+        b = row_y[i]
+        if csv_key in by_suffix["cells"]:
+            plot_ci(ax, by_suffix["cells"][csv_key], b - Y_DODGE, CELL_COLOR)
+        if csv_key in by_suffix["pneumonia"]:
+            plot_ci(ax, by_suffix["pneumonia"][csv_key], b + Y_DODGE, LUNG_COLOR)
+
+    ax.set_yticks(row_y)
+    ax.set_yticklabels([disp for _, disp in ROW_ORDER], fontsize=9)
+    ax.invert_yaxis()
+    margin = 0.11
+    ax.set_ylim(row_y[0] - Y_DODGE - margin, row_y[-1] + Y_DODGE + margin)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="y", which="both", top=False, right=False)
+    ax.tick_params(
+        axis="x",
+        which="major",
+        top=False,
+        labelsize=X_TICK_LABEL_PT,
+        width=1.3,
+        length=7,
+    )
+
+    fig.patch.set_facecolor("none")
+    fig.patch.set_alpha(0.0)
+    ax.set_facecolor("none")
+
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT_PNG, dpi=150)
+    plt.savefig(OUT_PNG, dpi=150, transparent=True, facecolor="none", edgecolor="none")
+    plt.savefig(
+        OUT_SVG,
+        format="svg",
+        transparent=True,
+        facecolor="none",
+    )
     plt.close(fig)
     print(f"Saved {OUT_PNG}")
+    print(f"Saved {OUT_SVG}")
 
 
 if __name__ == "__main__":

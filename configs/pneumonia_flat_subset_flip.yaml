@@ -4,7 +4,7 @@ data_ratio: 0.35
 test_ratio: 0.3
 experiment_type: small_flip
 dropout_rate: 0
-epochs: 5
+epochs: 10
 batch_size: 16
 lr: 0.01
 momentum: 0.09

@@ -114,6 +114,15 @@ def get_transform(config):
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
 
+    elif exp == "small_erase":
+        train_transform = transforms.Compose([
+            transforms.Grayscale(),
+            transforms.Resize((128, 128)),
+            transforms.ToTensor(),
+            transforms.RandomErasing(p=0.15),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
+
     else:
         train_transform =  transforms.Compose([
         transforms.Grayscale(),

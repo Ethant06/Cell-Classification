@@ -12,20 +12,23 @@ WHAT THIS SCRIPT DOES (walkthrough)
    - Each file holds one float: test accuracy for that experiment at that seed.
 
 3) What a "pair" is
-   - One folder = no-aug subset baseline, another folder = aug (e.g. flip).
+   - One folder = limited-data baseline (no extra aug), another = same setting + augmentation.
    - For each seed that exists in BOTH folders, we form ONE paired difference:
         difference = acc_aug - acc_baseline
    - Same seed → same train/test subset draw in your pipeline, so pairing is fair.
 
 4) What we compute per pair
    - n = number of common seeds
-   - mean_diff = average of those differences
-   - 95% confidence interval for that mean (paired t, df = n-1)
+   - mean_diff = average of paired differences (aug − limited baseline accuracy)
+   - 95% CI for that mean: paired t-interval on the differences (df = n − 1)
+
+   helps_augmentation: True if CI lies strictly above 0 (lower bound > 0), OR every
+     paired difference is > 0 (consistent positive gain across seeds).
 
 5) What we write (under statistics/paired/)
-   - summary.csv           — machine-readable, one row per pair
-   - summary_table.txt    — SAME info, aligned text table (easy to open in editor)
-   - long_format.csv      — one row per (pair, seed) for spreadsheets
+   - summary.csv           — one row per pair (includes helps_augmentation)
+   - summary_table.txt    — aligned text table
+   - long_format.csv      — one row per (pair, seed)
    - by_comparison/<id>/differences.csv — per-pair seed table
 
 6) After running this, make the figure:
@@ -48,15 +51,57 @@ ROOT = Path(__file__).resolve().parent.parent
 ALL_PLOTS = ROOT / "all_plots"
 OUT = ROOT / "statistics" / "paired"
 
-# Each tuple: (baseline folder under all_plots, aug folder, id for files, human label)
+# Limited baseline vs limited-data augmented runs (paired by seed).
+# Tuple: (limited_baseline_folder, aug_folder, comparison_id, label).
 PAIRS: list[tuple[str, str, str, str]] = [
-    ("subset_baseline_plot", "subset_aug_plot", "cells_subset_aug_vs_baseline", "cells: aug vs baseline"),
-    ("subset_baseline_plot", "subset_flip_plot", "cells_subset_flip_vs_baseline", "cells: flip vs baseline"),
-    ("subset_baseline_plot", "subset_rotation_plot", "cells_subset_rotation_vs_baseline", "cells: rotation vs baseline"),
-    ("subset_baseline_plot", "subset_aug_reg_plot", "cells_subset_aug_reg_vs_baseline", "cells: aug+reg vs baseline"),
-    ("pneumonia_subset_baseline", "pneumonia_flat_subset_aug_plot", "pneumonia_subset_aug_vs_baseline", "pneumonia: aug vs baseline"),
-    ("pneumonia_subset_baseline", "pneumonia_flat_subset_flip_plot", "pneumonia_subset_flip_vs_baseline", "pneumonia: flip vs baseline"),
-    ("pneumonia_subset_baseline", "pneumonia_flat_subset_rotation_plot", "pneumonia_subset_rotation_vs_baseline", "pneumonia: rotation vs baseline"),
+    (
+        "subset_baseline_plot",
+        "subset_flip_plot",
+        "cells_flip_vs_limited_baseline",
+        "cells: flip vs limited baseline",
+    ),
+    (
+        "pneumonia_subset_baseline",
+        "pneumonia_flat_subset_flip_plot",
+        "pneumonia_flip_vs_limited_baseline",
+        "pneumonia: flip vs limited baseline",
+    ),
+    (
+        "subset_baseline_plot",
+        "subset_rotation_plot",
+        "cells_rotation_vs_limited_baseline",
+        "cells: rotation vs limited baseline",
+    ),
+    (
+        "pneumonia_subset_baseline",
+        "pneumonia_flat_subset_rotation_plot",
+        "pneumonia_rotation_vs_limited_baseline",
+        "pneumonia: rotation vs limited baseline",
+    ),
+    (
+        "subset_baseline_plot",
+        "subset_erase_plot",
+        "cells_erase_vs_limited_baseline",
+        "cells: erase vs limited baseline",
+    ),
+    (
+        "pneumonia_subset_baseline",
+        "pneumonia_flat_subset_erase_plot",
+        "pneumonia_erase_vs_limited_baseline",
+        "pneumonia: erase vs limited baseline",
+    ),
+    (
+        "subset_baseline_plot",
+        "subset_aug_plot",
+        "cells_aug_vs_limited_baseline",
+        "cells: aug vs limited baseline",
+    ),
+    (
+        "pneumonia_subset_baseline",
+        "pneumonia_flat_subset_aug_plot",
+        "pneumonia_aug_vs_limited_baseline",
+        "pneumonia: aug vs limited baseline",
+    ),
 ]
 
 
@@ -126,6 +171,8 @@ def build_summary_and_long(
         aug_acc = np.array([a[s] for s in seeds])
         diff = aug_acc - base_acc
         mn, sd, lo, hi = t_ci_on_mean(diff)
+        all_positive = bool(np.all(diff > 0))
+        helps_augmentation = (lo > 0) or all_positive
 
         summary_rows.append(
             {
@@ -141,6 +188,8 @@ def build_summary_and_long(
                 "ci95_low": lo,
                 "ci95_high": hi,
                 "ci_method": "paired_t_mean_diff",
+                "all_seeds_positive": all_positive,
+                "helps_augmentation": helps_augmentation,
             }
         )
 
@@ -192,15 +241,16 @@ def write_summary_table_txt(path: Path, summary_rows: list[dict]) -> None:
     if not summary_rows:
         return
     lines = [
-        "Paired comparisons: difference = aug test_accuracy - baseline test_accuracy",
+        "Paired comparisons: difference = aug test_accuracy - limited_baseline test_accuracy",
         "95% CI = paired t interval on the MEAN of those differences (df = n_seeds - 1).",
-        "CI includes 0  ~  no strong evidence of systematic gain or loss.",
+        "helps_augmentation: ci95_low > 0 OR all per-seed differences > 0.",
         "",
     ]
-    cols = ["family", "label", "n", "mean_diff", "ci95_low", "ci95_high", "seeds"]
+    cols = ["family", "label", "n", "mean_diff", "ci95_low", "ci95_high", "helps", "seeds"]
     lines.append("\t".join(cols))
     lines.append("-" * 110)
     for r in summary_rows:
+        helps = r.get("helps_augmentation", "")
         lines.append(
             "\t".join(
                 [
@@ -210,6 +260,7 @@ def write_summary_table_txt(path: Path, summary_rows: list[dict]) -> None:
                     f'{float(r["mean_difference"]):.4f}',
                     f'{float(r["ci95_low"]):.4f}',
                     f'{float(r["ci95_high"]):.4f}',
+                    str(helps),
                     str(r["seeds_used"]),
                 ]
             )

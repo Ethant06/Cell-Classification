@@ -1,13 +1,14 @@
-Paired comparisons: difference = aug test_accuracy - baseline test_accuracy
+Paired comparisons: difference = aug test_accuracy - limited_baseline test_accuracy
 95% CI = paired t interval on the MEAN of those differences (df = n_seeds - 1).
-CI includes 0  ~  no strong evidence of systematic gain or loss.
+helps_augmentation: ci95_low > 0 OR all per-seed differences > 0.
 
-family	label	n	mean_diff	ci95_low	ci95_high	seeds
+family	label	n	mean_diff	ci95_low	ci95_high	helps	seeds
 --------------------------------------------------------------------------------------------------------------
-cells	cells: aug vs baseline	4	-0.0097	-0.2231	0.2037	5,12,20,44
-cells	cells: flip vs baseline	4	-0.1044	-0.5280	0.3193	5,12,20,44
-cells	cells: rotation vs baseline	4	-0.1044	-0.5253	0.3166	5,12,20,44
-cells	cells: aug+reg vs baseline	4	0.0963	-0.1230	0.3155	5,12,20,44
-pneumonia	pneumonia: aug vs baseline	4	-0.0179	-0.0344	-0.0015	5,12,20,44
-pneumonia	pneumonia: flip vs baseline	4	-0.0277	-0.0816	0.0261	5,12,20,44
-pneumonia	pneumonia: rotation vs baseline	4	-0.0225	-0.0513	0.0063	5,12,20,44
+cells	cells: flip vs limited baseline	10	-0.0019	-0.0258	0.0219	False	2,3,5,6,7,10,12,20,33,44
+pneumonia	pneumonia: flip vs limited baseline	10	-0.0030	-0.0068	0.0009	False	2,3,5,6,7,10,12,20,33,44
+cells	cells: rotation vs limited baseline	10	0.0055	-0.0179	0.0289	False	2,3,5,6,7,10,12,20,33,44
+pneumonia	pneumonia: rotation vs limited basel	10	-0.0083	-0.0141	-0.0024	False	2,3,5,6,7,10,12,20,33,44
+cells	cells: erase vs limited baseline	10	0.0117	-0.0036	0.0269	False	2,3,5,6,7,10,12,20,33,44
+pneumonia	pneumonia: erase vs limited baseline	10	0.0026	0.0001	0.0050	True	2,3,5,6,7,10,12,20,33,44
+cells	cells: aug vs limited baseline	10	-0.0136	-0.0510	0.0238	False	2,3,5,6,7,10,12,20,33,44
+pneumonia	pneumonia: aug vs limited baseline	10	-0.0050	-0.0090	-0.0010	False	2,3,5,6,7,10,12,20,33,44

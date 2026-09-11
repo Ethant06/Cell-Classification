@@ -3,8 +3,10 @@ data_dir: data2/
 data_ratio: 0.7
 test_ratio: 0.3
 experiment_type: baseline
+# After training, saves weights once (first seed only). Path is relative to cwd when you run main.py.
+model_save_path: checkpoints/pca_cnn_trained.pth
 dropout_rate: 0
-epochs: 5
+epochs: 10
 batch_size: 16
 lr: 0.01
 momentum: 0.09

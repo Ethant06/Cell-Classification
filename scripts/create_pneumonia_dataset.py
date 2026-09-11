@@ -1,11 +1,7 @@
-"""
-Create pneumonia dataset from PneumoniaMNIST, preserving the official train/val/test splits.
-Using a single merged folder and then re-splitting 70/30 would mix train/val/test and can cause
-patient/sample leakage (same patient in train and test), inflating accuracy.
-We write to data4/train/, data4/val/, data4/test/ so the pipeline can use the official split.
-"""
+"""Create the flat PneumoniaMNIST dataset used by the experiment configs."""
+
 import os
-from PIL import Image
+
 from medmnist import PneumoniaMNIST
 
 label_map = {
@@ -15,16 +11,25 @@ label_map = {
 
 splits = ["train", "val", "test"]
 
-for split in splits:
-    for cls in label_map.values():
-        os.makedirs(os.path.join("data4", split, cls), exist_ok=True)
 
-idx = 0
-for split in splits:
-    dataset = PneumoniaMNIST(split=split, download=True, size=128)
-    for img, label in dataset:
-        label = int(label.item())
-        class_name = label_map[label]
-        out_path = os.path.join("data4", split, class_name, f"{class_name}_{idx}.png")
-        img.save(out_path)
-        idx += 1
+def create_dataset(output_dir="data4"):
+    """Merge the source splits into the two-class ImageFolder layout used by this project."""
+    for class_name in label_map.values():
+        os.makedirs(os.path.join(output_dir, class_name), exist_ok=True)
+
+    image_index = 0
+    for split in splits:
+        dataset = PneumoniaMNIST(split=split, download=True, size=128)
+        for image, label in dataset:
+            class_name = label_map[int(label.item())]
+            output_path = os.path.join(
+                output_dir, class_name, f"{class_name}{image_index}.png"
+            )
+            image.save(output_path)
+            image_index += 1
+
+    print(f"Created {image_index} images in {output_dir}.")
+
+
+if __name__ == "__main__":
+    create_dataset()
