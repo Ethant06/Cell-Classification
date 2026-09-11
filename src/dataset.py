@@ -1,15 +1,26 @@
+"""Dataset splitting, augmentation, and DataLoader construction.
+
+Both image collections use torchvision's ``ImageFolder`` layout. A fixed,
+stratified train/test partition is persisted under ``saved_splits/`` for each
+dataset, while limited-data experiments draw a seed-specific stratified subset
+from the shared training partition.
+"""
+
 import os
-import torch
-from torch.utils.data import Subset, random_split, DataLoader
+from collections.abc import Callable, Mapping
+from typing import Any
+
 import numpy as np
-from torchvision.datasets import ImageFolder
-from torchvision import transforms
 from sklearn.model_selection import train_test_split
-import torch
+from torch.utils.data import DataLoader, Dataset, Subset
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
 
 
-def _split_matches_dataset(train_indices, test_indices, n_samples):
-    """True if saved indices are a full partition of [0, n_samples) (same size as current ImageFolder)."""
+def _split_matches_dataset(
+    train_indices: np.ndarray, test_indices: np.ndarray, n_samples: int
+) -> bool:
+    """Return whether saved indices exactly partition the current dataset."""
     if n_samples <= 0:
         return False
     combined = np.concatenate([np.asarray(train_indices), np.asarray(test_indices)])
@@ -20,16 +31,22 @@ def _split_matches_dataset(train_indices, test_indices, n_samples):
     return np.unique(combined).size == n_samples
 
 
-def load_create_split(data_dir, test_ratio, seed = 42):
-    """
-    Creates or loads a fixed train/test split that is shared across
-    all experiments and all random seeds. Each dataset gets its very own
-    fixed train/test indices.
+def load_create_split(
+    data_dir: str, test_ratio: float, seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load or create a fixed stratified train/test partition.
 
-    - If saved split files exist, they are loaded from saved_splits/.
-    - Otherwise, a new stratified split is created and saved as fixed.
-    - If the image folder changed size (add/remove images), saved indices are invalid;
-      a new split is created and overwrites the old files.
+    Existing indices are reused only when they still form a complete partition.
+    The default seed of 42 affects only split creation; once saved, every caller
+    reuses the same indices regardless of its experiment seed.
+
+    Args:
+        data_dir: Root directory accepted by ``ImageFolder``.
+        test_ratio: Fraction of samples assigned to the test partition.
+        seed: Seed used when a new partition must be generated.
+
+    Returns:
+        Arrays containing training and test indices.
     """
     dataset_name = os.path.basename(os.path.abspath(data_dir))
     split_dir = os.path.join("saved_splits", dataset_name)
@@ -61,16 +78,23 @@ def load_create_split(data_dir, test_ratio, seed = 42):
     return train_indices, test_indices
 
 
-def get_transform(config):
-    """
-    Returns image transformations for training and testing.
-    Training Transform:
-        - Depends on experiment type
-        - May include augmentation depending on experiment configurations
+def get_transform(
+    config: Mapping[str, Any],
+) -> tuple[transforms.Compose, transforms.Compose]:
+    """Build the training and test preprocessing pipelines.
 
-    Test Transform:
-        - Fixed across all experiments
-        - No augmentation applied
+    All images become normalized 128×128 grayscale tensors. Training
+    augmentation is selected through ``experiment_type``; test preprocessing is
+    deterministic. ``small_aug`` applies 15° rotation and flipping;
+    ``small_aug_reg`` adds random erasing before normalization;
+    ``small_rotation`` uses 25° rotation; ``small_flip`` uses flipping; and
+    ``small_erase`` uses random erasing. All other values receive no augmentation.
+
+    Args:
+        config: Experiment mapping containing ``experiment_type``.
+
+    Returns:
+        ``(training_transform, test_transform)``.
     """
 
     exp = config['experiment_type']
@@ -114,6 +138,15 @@ def get_transform(config):
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
 
+    elif exp == "small_erase":
+        train_transform = transforms.Compose([
+            transforms.Grayscale(),
+            transforms.Resize((128, 128)),
+            transforms.ToTensor(),
+            transforms.RandomErasing(p=0.15),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
+
     else:
         train_transform =  transforms.Compose([
         transforms.Grayscale(),
@@ -131,70 +164,71 @@ def get_transform(config):
     return train_transform, test_transform
 
 
-class TransformedSubset(torch.utils.data.Dataset):
-    def __init__(self, subset, transform=None):
+class TransformedSubset(Dataset):
+    """Apply a transform lazily to samples from an existing dataset subset."""
+
+    def __init__(
+        self, subset: Dataset, transform: Callable[[Any], Any] | None = None
+    ) -> None:
+        """Store the wrapped subset and optional input transform."""
         self.subset = subset
         self.transform = transform
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> tuple[Any, Any]:
+        """Return one transformed input and its unchanged class label."""
         x, y = self.subset[index]
         if self.transform:
             x = self.transform(x)
         return x, y
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples in the wrapped subset."""
         return len(self.subset)
 
 
-def load_datasets(config, seed):
-    """
-    Returns (train_loader, test_loader).
-    - Test dataloader is fixed for all experiments.
-    - Train dataloader varies by data ratio and transforms.
+def load_datasets(
+    config: Mapping[str, Any], seed: int
+) -> tuple[DataLoader, DataLoader]:
+    """Construct training and test loaders for one experiment run.
 
-    When config has data_dir_train and data_dir_test (e.g. pneumonia with official split),
-    uses those dirs directly to avoid patient/sample leakage from merging then re-splitting.
-    Otherwise uses data_dir and load_create_split for a fixed 70/30 stratified split.
+    Every experiment on a dataset shares its persisted train/test partition.
+    Non-baseline experiments may use ``data_ratio`` to select a seed-specific,
+    stratified fraction of that training partition. ``data_ratio`` is ignored
+    when ``experiment_type`` is ``baseline``. The training loader uses the
+    configured batch size and shuffles; the test loader is deterministic with a
+    fixed batch size of 64.
 
-    Reduced subset sampling (limited-data experiments):
-        - Stratified subsample of the training set; same subset across all limited-data
-          experiments for a given seed.
+    Args:
+        config: Dataset, split, augmentation, and batch-size settings.
+        seed: Seed for limited-training-data subsampling.
+
+    Returns:
+        Shuffled training and deterministic test loaders.
     """
     train_transform, test_transform = get_transform(config)
 
-    #train_indices will be used for subset sampling below
     train_indices, test_indices = load_create_split(
         data_dir = config['data_dir'],
         test_ratio = config['test_ratio']
     )
 
-    # No transforms applied to the full dataset
+    # Split the untransformed source first so test images are never augmented.
     full_dataset = ImageFolder(root=config['data_dir'])
 
-    # Create subsets first
     train_subset = Subset(full_dataset, train_indices)
     test_subset = Subset(full_dataset, test_indices)
 
-    # Apply transforms to the subsets
     train_dataset = TransformedSubset(train_subset, transform=train_transform)
     test_dataset = TransformedSubset(test_subset, transform=test_transform)
 
 
-    """
-    -reduced subset sampling for training data for experiments with limited data
-    -subset changes per seed but stays the same for every limited data experiment
-        -full_train_dataset.targets is a list of class labels for all images in the full dataset.
-        -train_indices is the list of indices in training split
-        -list comprehension gathers the labels corresponding to training samples.
-    """
     if config['experiment_type'] != 'baseline':
         if config['data_ratio'] < 1.0:
-            # Get labels from the original train_subset
+            # Resolve labels through the source ImageFolder for stratified sampling.
             train_labels = np.array([train_subset.dataset.targets[i] for i in train_subset.indices])
 
             subset_size = int(len(train_dataset) * config['data_ratio'])
 
-            # stratified subsampling from training split
             reduced_indices, _ = train_test_split(
                 np.arange(len(train_dataset)),
                 train_size=subset_size,
@@ -204,6 +238,8 @@ def load_datasets(config, seed):
             )
             train_dataset = Subset(train_dataset, reduced_indices)
 
-    train_loader = DataLoader(train_dataset, batch_size = config['batch_size'], shuffle= True) # this train_loader will only vary by seed
-    test_loader = DataLoader(test_dataset, batch_size = 64, shuffle = False) #this test loader is fixed for all experiment
+    train_loader = DataLoader(
+        train_dataset, batch_size=config['batch_size'], shuffle=True
+    )
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     return train_loader, test_loader

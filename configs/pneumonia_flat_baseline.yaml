@@ -1,15 +1,15 @@
-# Pneumonia with flat data4/ (data4/normal, data4/pneumonia). Uses same 70/30 split logic as cells.
+# Pneumonia full-training baseline: no augmentation and no dropout.
+# Data and fixed train/test split settings.
 data_dir: data4/
 data_ratio: 0.7
 test_ratio: 0.3
 experiment_type: baseline
+# Model and SGD hyperparameters.
 dropout_rate: 0
-epochs: 5
+epochs: 10
 batch_size: 16
 lr: 0.01
 momentum: 0.09
-plot_path_train: all_plots/pneumonia_flat_baseline_plot/train_plots.png
-plot_path_test: all_plots/pneumonia_flat_baseline_plot/test_plots.png
-plot_confusion: all_plots/pneumonia_flat_baseline_plot/confusion_matrix.png
+# First-seed report and per-seed accuracy output directory.
 report_path: all_plots/pneumonia_flat_baseline_plot/report.txt
 accuracy_path: all_plots/pneumonia_flat_baseline_plot/accuracy.txt

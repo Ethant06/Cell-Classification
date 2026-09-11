@@ -1,7 +1,24 @@
-# ignore dataset
-Data/
+# Local datasets and generated split indices
+/Data/
+/data*/
+/saved_splits/
+data/4
+
+# Model checkpoints
+/checkpoints/
+*.pth
+
+# Python environments and caches
 .venv/
-data2/
-src/__pycache__/
-*.pyc
-saved_splits/
+venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment and OS files
+.env
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,9 @@
+matplotlib==3.10.5
+medmnist==3.0.2
+numpy==2.3.2
+Pillow==11.3.0
+PyYAML==6.0.3
+scikit-learn==1.7.1
+scipy==1.16.1
+torch==2.11.0
+torchvision==0.26.0

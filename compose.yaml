@@ -1,0 +1,14 @@
+services:
+  experiment:
+    build:
+      context: .
+    image: cell-pneumonia-augmentation-study:latest
+    working_dir: /app
+    volumes:
+      - ./Data:/app/Data:ro
+      - ./data2:/app/data2
+      - ./data4:/app/data4
+      - ./saved_splits:/app/saved_splits
+      - ./all_plots:/app/all_plots
+      - ./statistics:/app/statistics
+      - ./visualizations:/app/visualizations

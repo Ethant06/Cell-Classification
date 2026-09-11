@@ -1,30 +1,50 @@
+"""Create the flat PneumoniaMNIST dataset used by the experiments.
+
+The official source splits are downloaded and merged into ``normal`` and
+``pneumonia`` class directories. The training pipeline subsequently creates its
+own fixed stratified split to reproduce the completed study design.
 """
-Create pneumonia dataset from PneumoniaMNIST, preserving the official train/val/test splits.
-Using a single merged folder and then re-splitting 70/30 would mix train/val/test and can cause
-patient/sample leakage (same patient in train and test), inflating accuracy.
-We write to data4/train/, data4/val/, data4/test/ so the pipeline can use the official split.
-"""
-import os
-from PIL import Image
+
+from pathlib import Path
+
 from medmnist import PneumoniaMNIST
 
-label_map = {
+# PneumoniaMNIST's binary labels and the corresponding ImageFolder names.
+LABEL_MAP = {
     0: "normal",
     1: "pneumonia",
 }
 
-splits = ["train", "val", "test"]
+# All official source splits are exported into one flat collection.
+SOURCE_SPLITS = ("train", "val", "test")
 
-for split in splits:
-    for cls in label_map.values():
-        os.makedirs(os.path.join("data4", split, cls), exist_ok=True)
 
-idx = 0
-for split in splits:
-    dataset = PneumoniaMNIST(split=split, download=True, size=128)
-    for img, label in dataset:
-        label = int(label.item())
-        class_name = label_map[label]
-        out_path = os.path.join("data4", split, class_name, f"{class_name}_{idx}.png")
-        img.save(out_path)
-        idx += 1
+def create_dataset(output_dir: str | Path = "data4") -> int:
+    """Download and export PneumoniaMNIST in a flat ImageFolder layout.
+
+    Args:
+        output_dir: Destination root for ``normal`` and ``pneumonia`` folders.
+
+    Returns:
+        Number of images written. A single global counter names files across
+        source splits (for example, ``normal123.png``).
+    """
+    output_dir = Path(output_dir)
+    for class_name in LABEL_MAP.values():
+        (output_dir / class_name).mkdir(parents=True, exist_ok=True)
+
+    image_index = 0
+    for split in SOURCE_SPLITS:
+        dataset = PneumoniaMNIST(split=split, download=True, size=128)
+        for image, label in dataset:
+            class_name = LABEL_MAP[int(label.item())]
+            output_path = output_dir / class_name / f"{class_name}{image_index}.png"
+            image.save(output_path)
+            image_index += 1
+
+    print(f"Created {image_index} images in {output_dir}.")
+    return image_index
+
+
+if __name__ == "__main__":
+    create_dataset()
