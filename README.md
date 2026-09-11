@@ -12,6 +12,10 @@ combined rotation and flipping, and random erasing. Every configuration runs
 with 10 random seeds. The repository retains the resulting ablation chart,
 paired confidence-interval plot, and intra-class PCA density figure.
 
+## Project poster
+
+![Project poster](poster_visuals/EthanTandio_Poster.png)
+
 ## Reproducibility boundary
 
 Docker reproduces the Python environment and commands. It cannot distribute or
@@ -296,10 +300,4 @@ Each YAML file under `configs/` defines:
 
 Use `--configs` to run any subset without editing `main.py`.
 
-## Notes
 
-- Run commands from the repository root.
-- Reusing `saved_splits/` preserves the exact train/test partition.
-- If dataset size changes, invalid saved split indices are regenerated.
-- `data2/`, `data4/`, and `saved_splits/` are local artifacts and are ignored by
-  Git.
