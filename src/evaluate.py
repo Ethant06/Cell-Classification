@@ -1,20 +1,39 @@
+"""Evaluate trained models and optionally persist a classification report."""
+
+import os
+from collections.abc import Mapping
+from typing import Any
+
+import numpy as np
 import torch
 from sklearn.metrics import (
     balanced_accuracy_score,
     classification_report,
     f1_score,
 )
-import numpy as np
-import os
+from torch.utils.data import DataLoader
 
-def evaluate(model, dataloader, config, save_report) -> float:
-    """
-    Evaluates trained CNN model on test dataset.
+from .model import CNN
 
-    - Runs prediction on the test DataLoader
-    - Collects predictions and true labels
-    - Saves a classification report for the first seed
-    - Returns overall test accuracy
+
+def evaluate(
+    model: CNN,
+    dataloader: DataLoader,
+    config: Mapping[str, Any],
+    save_report: bool,
+) -> float:
+    """Measure test performance and optionally save a detailed text report.
+
+    Args:
+        model: Trained binary classifier.
+        dataloader: Deterministic test loader.
+        config: Experiment mapping containing ``report_path``.
+        save_report: Whether to write balanced accuracy, macro-F1, and the
+            scikit-learn classification report.
+
+    Returns:
+        Ordinary (unbalanced) accuracy: the fraction of test samples classified
+        correctly. Balanced accuracy and macro-F1 are printed but not returned.
     """
 
     model.eval()

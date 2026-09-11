@@ -1,9 +1,16 @@
-"""Generate the retained four-panel intra-class PCA density figure."""
+"""Generate the retained intra-class PCA density figure.
+
+The current two datasets contain four classes in total, producing four panels.
+PCA operates on grayscale 128×128 tensors scaled to [0, 1] without the
+normalization used during CNN training.
+"""
 
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from scipy.stats import gaussian_kde
 from sklearn.decomposition import PCA
@@ -34,6 +41,7 @@ IMAGE_TRANSFORM = transforms.Compose(
 
 
 def canonical_class_name(folder_name: str) -> str:
+    """Map dataset-specific folder names to canonical display/color labels."""
     name = folder_name.lower()
     for class_name in CLASS_COLORS:
         if class_name in name:
@@ -42,6 +50,7 @@ def canonical_class_name(folder_name: str) -> str:
 
 
 def load_class_images(data_dir: Path, class_name: str) -> np.ndarray:
+    """Load an exact ImageFolder class as an ``(n_samples, n_pixels)`` matrix."""
     dataset = ImageFolder(root=data_dir, transform=IMAGE_TRANSFORM)
     target = dataset.class_to_idx[class_name]
     images = [
@@ -53,10 +62,28 @@ def load_class_images(data_dir: Path, class_name: str) -> np.ndarray:
 
 
 def components_for_variance(cumulative_variance: np.ndarray, threshold: float) -> int:
+    """Return the smallest component count reaching a variance threshold."""
     return int(np.searchsorted(cumulative_variance, threshold, side="left") + 1)
 
 
-def analyze_class(images: np.ndarray) -> dict:
+def analyze_class(images: np.ndarray) -> dict[str, Any]:
+    """Fit intra-class PCA and calculate the statistics displayed in one panel.
+
+    PCA is capped at 500 components to bound memory and runtime. The returned
+    coordinates contain only PC1 and PC2, while ``k90`` is calculated from all
+    fitted components.
+
+    Args:
+        images: Flattened image matrix with one image per row.
+
+    Returns:
+        Plot coordinates, centroid, variance percentages, ``k90``, mean radial
+        distance in PC1–PC2 space, and the standard deviation of those radial
+        distances as ``mean_spread``.
+
+    Raises:
+        ValueError: If fewer than three images are supplied.
+    """
     if len(images) < 3:
         raise ValueError("At least three images are required for PCA")
 
@@ -78,7 +105,14 @@ def analyze_class(images: np.ndarray) -> dict:
     }
 
 
-def add_density_contours(ax, coordinates: np.ndarray, color: str) -> None:
+def add_density_contours(
+    ax: Axes, coordinates: np.ndarray, color: str
+) -> None:
+    """Overlay quantile contours from a two-dimensional Gaussian KDE.
+
+    Singular point clouds cannot support KDE; those panels retain their scatter
+    points and silently omit contours.
+    """
     if len(coordinates) < 4:
         return
 
@@ -112,7 +146,12 @@ def add_density_contours(ax, coordinates: np.ndarray, color: str) -> None:
         )
 
 
-def plot_panel(ax, result: dict) -> None:
+def plot_panel(ax: Axes, result: dict[str, Any]) -> None:
+    """Render one class's scatter, density contours, centroid, and statistics.
+
+    ``result`` must contain the analysis keys from ``analyze_class`` plus
+    ``class_name``, ``sample_count``, and ``color``.
+    """
     coordinates = result["coordinates"]
     color = result["color"]
     class_name = result["class_name"]
@@ -156,6 +195,7 @@ def plot_panel(ax, result: dict) -> None:
 
 
 def main() -> None:
+    """Load both datasets and write the retained four-panel PCA figure."""
     missing = [path for path in DATASETS.values() if not path.is_dir()]
     if missing:
         missing_list = ", ".join(str(path) for path in missing)

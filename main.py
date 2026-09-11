@@ -1,9 +1,26 @@
+"""Run CNN experiments and generate the cross-dataset ablation summary.
+
+Each selected YAML configuration is trained with every seed in ``SEEDS``. Per-seed
+test and training accuracies are written under ``all_plots/``; the collected test
+accuracies then produce the retained ablation-study PNG.
+"""
+
+import argparse
+import os
+import random
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import yaml
+
 from src.dataset import load_datasets
 from src.evaluate import evaluate
 from src.model import CNN
 from src.train import train
-import matplotlib.pyplot as plt
-import torch, numpy as np, random, os, yaml, argparse
 
 DEFAULT_CONFIG_FILES = [
     "baseline.yaml",
@@ -26,8 +43,8 @@ PNEUMONIA_CONFIG_FILES = [
     "pneumonia_flat_subset_erase.yaml",
 ]
 
-#---------------------Visualization Block------------------------------
-# Cells (data2) vs lungs (data4) plot folders — order = x-axis groups, left/right bar per group.
+# Each tuple is: display label, cell result folder, pneumonia result folder.
+# "Original" is the limited-data, no-augmentation control—not the full baseline.
 ABLATION_GROUP_BARS = [
     ("Original", "subset_baseline_plot", "pneumonia_subset_baseline"),
     ("Flip", "subset_flip_plot", "pneumonia_flat_subset_flip_plot"),
@@ -47,17 +64,24 @@ EXPERIMENT_TICK_FONT_PT = POSTER_24PX_PT
 EXPERIMENT_TICK_FONT_PT_XAXIS = EXPERIMENT_TICK_FONT_PT + 5.0 * _PX96
 
 
-def read_seed_mean_std(exp_folder: str):
-    """
-    Mean and std of test accuracy from all_plots/<exp_folder>/accuracies/seed_*.txt.
-    Returns None if folder or seeds missing.
+def read_seed_mean_std(exp_folder: str) -> tuple[float, float] | None:
+    """Return population mean and standard deviation for an experiment's seed accuracies.
+
+    Only files named ``seed_*.txt`` are included. NumPy's default ``ddof=0`` is
+    intentional because the chart summarizes this fixed set of experiment seeds.
+
+    Args:
+        exp_folder: Experiment directory name beneath ``all_plots``.
+
+    Returns:
+        ``(mean, standard_deviation)`` when seed files exist, otherwise ``None``.
     """
     seed_dir = os.path.join("all_plots", exp_folder, "accuracies")
     if not os.path.isdir(seed_dir):
         return None
     seed_values = []
     for fname in os.listdir(seed_dir):
-        if fname.endswith(".txt"):
+        if fname.startswith("seed_") and fname.endswith(".txt"):
             with open(os.path.join(seed_dir, fname), "r") as f:
                 seed_values.append(float(f.read().strip()))
     if not seed_values:
@@ -65,10 +89,13 @@ def read_seed_mean_std(exp_folder: str):
     return float(np.mean(seed_values)), float(np.std(seed_values))
 
 
-def plot_seed_results():
-    """
-    Grouped bar chart: one x position per ablation setting; two bars (Cells vs Lungs)
-    with mean ± std across seeds. Groups omitted if either modality has no seed files.
+def plot_seed_results() -> None:
+    """Write the grouped cell-versus-pneumonia ablation chart.
+
+    Each bar shows mean test accuracy across seeds and each error bar shows one
+    population standard deviation. A group is omitted unless both datasets have
+    seed results, preventing incomplete side-by-side comparisons. The PNG is
+    written to ``visualizations/ablation_study/seed_ablation_comparison.png``.
     """
     group_labels = []
     cells_means, cells_stds = [], []
@@ -119,7 +146,10 @@ def plot_seed_results():
         linewidth=0.6,
     )
 
-    def _label_bars(bar_container, means, stds):
+    def _label_bars(
+        bar_container: Any, means: Sequence[float], stds: Sequence[float]
+    ) -> None:
+        """Place a three-decimal mean label above each error bar."""
         for rect, m, s in zip(bar_container.patches, means, stds):
             y = float(m) + float(s) + 0.018
             ax.text(
@@ -157,43 +187,54 @@ def plot_seed_results():
     base = os.path.join(save_dir, "seed_ablation_comparison")
     plt.savefig(base + ".png", dpi=150, facecolor="white")
     plt.close(fig)
-#----------------------End of Visualization Block----------------------------
+# Completed-study seeds. The first seed also controls single-copy text outputs.
+SEEDS = [12, 5, 20, 44, 2, 7, 6, 33, 3, 10]
 
 
-
-# ------------------Main Functions for running experiment-----------------------
-seeds = [12, 5, 20, 44, 2, 7, 6, 33, 3, 10]
-
-def setSeed(seed):
-    """
-    Set seed for
-    - model initialization
-    - data shuffling
-    - reduced subset sampling
-    """
+def set_seed(seed: int) -> None:
+    """Seed PyTorch, NumPy, and Python random-number generators."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-def load_config(path):
-    """
-    Loads a YAML configuration file for an experiment.
-    """
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
 
-def run_experiment(config, seed, config_filename=None):
+def load_config(path: str | Path) -> dict[str, Any]:
+    """Load and return one YAML experiment configuration.
+
+    Raises:
+        ValueError: If the YAML document is empty or is not a mapping.
     """
-    Runs a single experiment for a given experiment configuration and seed.
+    with open(path, encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file)
+    if not isinstance(config, dict):
+        raise ValueError(f"Expected a YAML mapping in {path}")
+    return config
+
+
+def run_experiment(
+    config: Mapping[str, Any], seed: int, config_filename: str | None = None
+) -> None:
+    """Train and evaluate one configuration with one random seed.
+
+    The function records test and training accuracy in the experiment directory
+    derived from ``accuracy_path``. The first seed additionally refreshes
+    ``accuracy.txt`` and the human-readable classification report.
+
+    Args:
+        config: Experiment settings loaded from YAML. Required keys are
+            ``data_dir``, ``test_ratio``, ``experiment_type``, ``data_ratio``,
+            ``batch_size``, ``epochs``, ``lr``, ``momentum``,
+            ``accuracy_path``, and ``report_path``.
+        seed: Seed controlling model initialization, shuffling, and subsampling.
+        config_filename: Optional filename used to identify the run in logs.
+
     Notes:
-    - Training and evaluation plots are saved only for the first seed.
-    - Accuracy is saved per seed in: all_plots/<experiment>/accuracies/seed_<seed>.txt
-    - config_filename (e.g. pneumonia_flat_subset_aug.yaml) distinguishes runs that share the same experiment_type.
-    Optional YAML key run_label: short display name; overrides filename in the log line.
+        Stored test accuracy is ordinary classification accuracy. Balanced
+        accuracy and macro-F1 are printed and included in first-seed reports.
     """
-    setSeed(seed)
+    set_seed(seed)
 
-    save_report = seed == seeds[0]
+    save_report = seed == SEEDS[0]
 
     train_loader, test_loader = load_datasets(config, seed)
     model = CNN(config)
@@ -203,42 +244,32 @@ def run_experiment(config, seed, config_filename=None):
         flush=True,
     )
     train_accuracy = train(model, train_loader, config)
-    accuracy = str(evaluate(model, test_loader, config, save_report)) #this value is recorded in all_plots/<experiment>/accuracies/seed_<seed>.txt
+    accuracy = evaluate(model, test_loader, config, save_report)
 
 
-    # make folder containing test accuracies for each seed per experiment
+    # Keep scalar results as plain text so downstream statistics remain transparent.
     exp_directory = os.path.dirname(config['accuracy_path'])
     seed_dir = os.path.join(exp_directory, 'accuracies')
     os.makedirs(seed_dir, exist_ok=True)
     seed_path = os.path.join(seed_dir, f"seed_{seed}.txt")
     with open(seed_path, 'w') as f:
         f.write(str(accuracy))
-    # keep accuracy.txt in sync with first seed so gatherAccuracies() works
-    if seed == seeds[0]:
+    if seed == SEEDS[0]:
         with open(config['accuracy_path'], 'w') as f:
             f.write(str(accuracy))
 
-    # make folder containg train accuracies for each seed per experiment
     train_seed_dir = os.path.join(exp_directory, 'train_accuracies')
     os.makedirs(train_seed_dir, exist_ok = True)
     train_accuracy_path = os.path.join(train_seed_dir, f"seed_{seed}.txt")
     with open(train_accuracy_path, 'w') as f:
         f.write(str(train_accuracy))
 
-#Main Execution Block
-if __name__ == '__main__':
-    """
-    - Iterates over all experiment config files
-    - For each experiment, the experiment is ran across all seeds
-    - After every experiment completes:
-        - Gathers accuracies
-        - Generates summary plots
-    """
-
+def main() -> None:
+    """Parse command-line options, run requested experiments, and plot the summary."""
     parser = argparse.ArgumentParser(
         description=(
             "Train/eval CNN experiments. Default run uses DEFAULT_CONFIG_FILES; "
-            "each YAML sets its own data_dir (e.g. euploid/aneuploid ImageFolder root). "
+            "each YAML selects data2/ (cell classes) or data4/ (lung classes). "
             "Use --pneumonia for pneumonia YAMLs only."
         )
     )
@@ -274,7 +305,11 @@ if __name__ == '__main__':
         config_path = os.path.join(config_folder, cfg)
         base_config = load_config(config_path)
 
-        for seed in seeds:
+        for seed in SEEDS:
             run_experiment(base_config, seed, cfg)
 
     plot_seed_results()
+
+
+if __name__ == '__main__':
+    main()

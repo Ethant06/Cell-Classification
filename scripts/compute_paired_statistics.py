@@ -106,6 +106,7 @@ PAIRS: list[tuple[str, str, str, str]] = [
 
 
 def family(comparison_id: str) -> str:
+    """Infer the dataset family encoded at the start of a comparison ID."""
     return "pneumonia" if comparison_id.startswith("pneumonia") else "cells"
 
 
@@ -127,7 +128,7 @@ def read_one_experiment_accuracies(exp_name: str) -> dict[int, float]:
 
 
 def load_everything() -> dict[str, dict[int, float]]:
-    """exp_folder_name -> {seed: accuracy}"""
+    """Read seed accuracies from every experiment directory under ``all_plots``."""
     if not ALL_PLOTS.is_dir():
         return {}
     all_exp: dict[str, dict[int, float]] = {}
@@ -138,7 +139,7 @@ def load_everything() -> dict[str, dict[int, float]]:
 
 
 def t_ci_on_mean(values: np.ndarray, confidence: float = 0.95) -> tuple[float, float, float, float]:
-    """Returns mean, std, ci_low, ci_high for the mean of `values` (paired differences)."""
+    """Return mean, sample std, and paired-t CI bounds for supplied differences."""
     values = np.asarray(values, dtype=float)
     n = len(values)
     if n < 2:
@@ -156,6 +157,22 @@ def t_ci_on_mean(values: np.ndarray, confidence: float = 0.95) -> tuple[float, f
 def build_summary_and_long(
     exps: dict[str, dict[int, float]],
 ) -> tuple[list[dict], list[dict]]:
+    """Calculate paired differences and summary statistics for configured pairs.
+
+    Args:
+        exps: Experiment names mapped to ``seed -> test accuracy`` values.
+
+    Returns:
+        ``(long_rows, summary_rows)`` ready for CSV serialization.
+
+    Side effects:
+        Writes one ``by_comparison/<id>/differences.csv`` file per comparison.
+        Comparisons with fewer than two shared seeds are skipped.
+
+    Notes:
+        ``helps_augmentation`` is true when the CI is above zero or every paired
+        difference is positive.
+    """
     long_rows: list[dict] = []
     summary_rows: list[dict] = []
 
@@ -226,6 +243,7 @@ def build_summary_and_long(
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
+    """Write dictionaries to CSV using keys from the first row as columns."""
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,6 +288,7 @@ def write_summary_table_txt(path: Path, summary_rows: list[dict]) -> None:
 
 
 def main() -> None:
+    """Read seed accuracies and refresh all paired-statistics table outputs."""
     exps = load_everything()
     if not exps:
         print("No data under all_plots/. Run training first.")

@@ -1,14 +1,33 @@
-import torch.optim as optim
+"""Model training loop and final training-accuracy calculation."""
+
+from collections.abc import Mapping
+from typing import Any
+
 import torch
 import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+
+from .model import CNN
 
 
-def train(model, dataloader, config) -> float:
-    """
-    - Iterates over the training dataset for a fixed number of epochs
-    - Performs forward and backward passes
-    - Updates model parameters using SGD
-    - Reports loss and accuracy per epoch
+def train(
+    model: CNN, dataloader: DataLoader, config: Mapping[str, Any]
+) -> float:
+    """Optimize a binary classifier and return final training-loader accuracy.
+
+    Optimization uses ``BCEWithLogitsLoss`` and SGD. Epoch loss is the mean of
+    batch losses, and predictions use a sigmoid threshold of 0.5. The final
+    accuracy pass reuses the training dataset, so stochastic image augmentation
+    remains active even though the model itself is in evaluation mode.
+
+    Args:
+        model: CNN whose parameters will be updated in place.
+        dataloader: Training samples, including any configured augmentation.
+        config: Mapping containing ``epochs``, ``lr``, and ``momentum``.
+
+    Returns:
+        Fraction of correctly classified samples during a final evaluation pass.
     """
     optimizer = optim.SGD(model.parameters(), lr = config['lr'], momentum = config['momentum'])
     criterion = nn.BCEWithLogitsLoss()
@@ -38,7 +57,7 @@ def train(model, dataloader, config) -> float:
 
 
         epoch_loss_sum = epoch_loss / len(dataloader)
-        epoch_accuracy = (epoch_correct / epoch_total)
+        epoch_accuracy = epoch_correct / epoch_total
         print(
             f"  Epoch {epoch + 1}/{n_epochs}  loss={epoch_loss_sum:.4f}  train_acc={epoch_accuracy:.4f}",
             flush=True,
@@ -57,5 +76,4 @@ def train(model, dataloader, config) -> float:
             final_train_total += labels.size(0)
             final_train_correct += (predicted == labels).sum().item()
 
-    final_train_accuracy = final_train_correct / final_train_total
-    return final_train_accuracy
+    return final_train_correct / final_train_total

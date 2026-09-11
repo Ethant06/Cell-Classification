@@ -1,11 +1,29 @@
-import torch.nn as nn
+"""Convolutional neural network used by every experiment."""
+
+from collections.abc import Mapping
+from typing import Any
+
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
 
 class CNN(nn.Module):
-    def __init__(self, config):
-        super(CNN, self).__init__()
+    """Binary classifier for normalized 128×128 grayscale images.
+
+    Three convolutional blocks reduce the image to 128 feature maps of size
+    8×8. Two fully connected layers then produce one classification logit per
+    image. Inputs have shape ``(batch, 1, 128, 128)`` and outputs have shape
+    ``(batch, 1)``.
+    """
+
+    def __init__(self, config: Mapping[str, Any]) -> None:
+        """Initialize model layers from dropout-related configuration values.
+
+        ``regularization`` toggles Dropout modules and defaults to ``True``;
+        ``dropout_rate`` defaults to 0.25. Reported configurations set the rate
+        to zero, so their Dropout modules are effective no-ops.
+        """
+        super().__init__()
 
         self.use_dropout = config.get('regularization', True)
         dropout_rate = config.get('dropout_rate', 0.25)
@@ -39,7 +57,8 @@ class CNN(nn.Module):
             nn.Linear(64, 1),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return one unnormalized binary-classification logit per image."""
         x = self.layers(x)
         x = self.fc_layers(x)
         return x

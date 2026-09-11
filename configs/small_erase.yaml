@@ -1,15 +1,15 @@
-# configuration for CNN experiment using subset of data with random erasing only (no flip/rotation)
+# Cell limited-data experiment with random erasing only.
+# Data and fixed train/test split settings.
 data_dir: data2/
 data_ratio: 0.35
 test_ratio: 0.3
 experiment_type: small_erase
+# Model and SGD hyperparameters.
 dropout_rate: 0
 epochs: 10
 batch_size: 16
 lr: 0.01
 momentum: 0.09
-plot_path_train: all_plots/subset_erase_plot/train_plots.png
-plot_path_test: all_plots/subset_erase_plot/test_plots.png
-plot_confusion: all_plots/subset_erase_plot/confusion_matrix.png
+# First-seed report and per-seed accuracy output directory.
 report_path: all_plots/subset_erase_plot/report.txt
 accuracy_path: all_plots/subset_erase_plot/accuracy.txt

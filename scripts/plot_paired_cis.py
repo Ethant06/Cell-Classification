@@ -15,6 +15,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 
 # Sans-serif stack (aligned with typical matplotlib / poster exports)
 plt.rcParams.update(
@@ -43,7 +44,8 @@ X_TICK_LABEL_PT = 10.0 + 5.0 * 72.0 / 96.0 + 6.0
 CELL_COLOR = "#2E86AB"
 LUNG_COLOR = "#E8871E"
 
-# (summary.csv label suffix, y-axis display text). Top → bottom after invert_yaxis.
+# These suffixes must match PAIRS labels after their dataset prefix is removed.
+# Each tuple is (summary.csv label suffix, y-axis display text).
 ROW_ORDER: list[tuple[str, str]] = [
     ("flip vs limited baseline", "flip vs baseline"),
     ("rotation vs limited baseline", "rotated vs baseline"),
@@ -57,6 +59,7 @@ ROW_SPACING = 0.42
 
 
 def load_rows() -> list[dict[str, str]]:
+    """Load paired-comparison summaries or exit with a recovery instruction."""
     if not SUMMARY.is_file():
         raise SystemExit(f"Missing {SUMMARY}. Run: python scripts/compute_paired_statistics.py")
     with SUMMARY.open(encoding="utf-8") as f:
@@ -64,11 +67,16 @@ def load_rows() -> list[dict[str, str]]:
 
 
 def label_suffix(row: dict[str, str]) -> str:
+    """Remove the dataset-family prefix from a comparison label."""
     lab = row["label"]
     return lab.split(": ", 1)[-1] if ": " in lab else lab
 
 
-def plot_ci(ax, row: dict[str, str], y: float, color: str) -> None:
+def plot_ci(ax: Axes, row: dict[str, str], y: float, color: str) -> None:
+    """Draw one mean difference with asymmetric 95% CI error bars.
+
+    The row must contain ``mean_difference``, ``ci95_low``, and ``ci95_high``.
+    """
     m = float(row["mean_difference"])
     lo = float(row["ci95_low"])
     hi = float(row["ci95_high"])
@@ -91,6 +99,11 @@ def plot_ci(ax, row: dict[str, str], y: float, color: str) -> None:
 
 
 def main() -> None:
+    """Group available comparisons and write the confidence-interval PNG.
+
+    Missing rows are skipped. Only the four augmentation types in ``ROW_ORDER``
+    are shown; full-training baselines are intentionally excluded.
+    """
     rows = load_rows()
     by_suffix: dict[str, dict[str, dict[str, str]]] = {"cells": {}, "pneumonia": {}}
     for r in rows:
